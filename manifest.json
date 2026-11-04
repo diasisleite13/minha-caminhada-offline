@@ -1,9 +1,8 @@
-
 {
   "id": "./",
   "name": "Minha Caminhada Offline",
   "short_name": "Minha Caminhada",
-  "description": "Aplicativo de caminhada com GPS, distância, velocidade e histórico.",
+  "description": "Aplicativo de caminhada com GPS, mapa offline, distância e histórico.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
@@ -20,4 +19,3 @@
     }
   ]
 }
-
