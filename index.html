@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -44,7 +45,6 @@
   </section>
 
   <section class="distance-card">
-
     <small>DISTÂNCIA PERCORRIDA</small>
 
     <div class="distance">
@@ -53,7 +53,6 @@
     </div>
 
     <div class="stats">
-
       <div>
         <small>Tempo</small>
         <strong id="time">00:00:00</strong>
@@ -68,12 +67,10 @@
         <small>Ritmo médio</small>
         <strong id="pace">--:-- /km</strong>
       </div>
-
     </div>
   </section>
 
   <section class="map-section">
-
     <div class="section-title">
       <h2>Seu percurso</h2>
       <button id="locateBtn" class="small-btn">
@@ -85,13 +82,11 @@
 
     <p id="mapNotice" class="notice">
       O mapa precisa ser carregado pela internet.
-      O registro GPS funciona offline.
+      O GPS funciona sem internet.
     </p>
-
   </section>
 
   <section class="controls">
-
     <button id="startBtn" class="primary">
       ▶ Iniciar caminhada
     </button>
@@ -103,8 +98,49 @@
     <button id="finishBtn" class="danger" disabled>
       ■ Finalizar
     </button>
-
   </section>
+
+  <!-- NOVO PAINEL DE DESEMPENHO -->
+
+  <section class="performance-section">
+
+    <div class="section-title">
+      <h2>🏆 Meu desempenho</h2>
+    </div>
+
+    <div class="performance-grid">
+
+      <div class="performance-card">
+        <span class="performance-icon">📍</span>
+        <small>Total de quilômetros</small>
+        <strong id="performanceDistance">0,00 km</strong>
+      </div>
+
+      <div class="performance-card">
+        <span class="performance-icon">⏱️</span>
+        <small>Tempo total</small>
+        <strong id="performanceTime">00:00:00</strong>
+      </div>
+
+      <div class="performance-card">
+        <span class="performance-icon">🚶</span>
+        <small>Velocidade média</small>
+        <strong id="performanceSpeed">0,0 km/h</strong>
+      </div>
+
+      <div class="performance-card record-card">
+        <span class="performance-icon">🥇</span>
+        <small>Recorde de distância</small>
+        <strong id="performanceRecord">0,00 km</strong>
+        <span id="performanceRecordDate" class="record-date">
+          Nenhuma caminhada registrada
+        </span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- HISTÓRICO -->
 
   <section class="history-section">
 
@@ -117,7 +153,6 @@
     </div>
 
     <div class="history-summary">
-
       <div>
         <small>Total de caminhadas</small>
         <strong id="totalWalks">0</strong>
@@ -127,7 +162,6 @@
         <small>Distância acumulada</small>
         <strong id="totalKm">0 km</strong>
       </div>
-
     </div>
 
     <div id="history">
