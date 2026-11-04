@@ -1,12 +1,13 @@
-
 <svg xmlns="http://www.w3.org/2000/svg"
      width="512"
      height="512"
      viewBox="0 0 512 512">
 
-  <rect width="512" height="512" rx="100" fill="#123d2c"/>
+  <rect width="512" height="512"
+        rx="100" fill="#123d2c"/>
 
-  <circle cx="260" cy="105" r="38" fill="#ffffff"/>
+  <circle cx="260" cy="105" r="38"
+          fill="#ffffff"/>
 
   <path d="M238 160 L190 245 L260 290 L330 225 L300 185"
         fill="none"
