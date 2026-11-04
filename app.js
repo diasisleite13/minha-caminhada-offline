@@ -4,18 +4,26 @@ const $ = id => document.getElementById(id);
 const STORAGE_KEY = "minha-caminhada-historico-v1";
 const ACTIVE_KEY = "minha-caminhada-sessao-v1";
 
-let map;
-let route;
-let marker;
+let map = null;
+let route = null;
+let marker = null;
+
 let watchId = null;
+let timer = null;
+
 let points = [];
 let distanceMeters = 0;
+
 let startedAt = null;
 let elapsedBeforePause = 0;
-let timer = null;
+
 let running = false;
 let paused = false;
+
 let lastPoint = null;
+let gpsCandidates = [];
+
+/* HISTÓRICO */
 
 function loadHistory() {
   try {
@@ -29,9 +37,24 @@ function saveHistory(history) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
 }
 
+function saveActiveSession() {
+  if (!startedAt) return;
+
+  localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+    points,
+    distanceMeters,
+    startedAt,
+    elapsedBeforePause,
+    running,
+    paused
+  }));
+}
+
+/* DISTÂNCIA */
+
 function haversine(a, b) {
   const R = 6371000;
-  const rad = x => x * Math.PI / 180;
+  const rad = value => value * Math.PI / 180;
 
   const dLat = rad(b.lat - a.lat);
   const dLon = rad(b.lng - a.lng);
@@ -45,6 +68,20 @@ function haversine(a, b) {
   return 2 * R * Math.asin(Math.sqrt(value));
 }
 
+function formatDistance(meters) {
+  if (meters < 1000) {
+    return {
+      value: Math.round(meters),
+      unit: "m"
+    };
+  }
+
+  return {
+    value: (meters / 1000).toFixed(2).replace(".", ","),
+    unit: "km"
+  };
+}
+
 function formatTime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -55,17 +92,12 @@ function formatTime(seconds) {
     .join(":");
 }
 
-function formatDistance(meters) {
-  return meters < 1000
-    ? { value: Math.round(meters), unit: "m" }
-    : {
-        value: (meters / 1000).toFixed(2).replace(".", ","),
-        unit: "km"
-      };
-}
+/* CRONÔMETRO E ESTATÍSTICAS */
 
 function getElapsed() {
-  if (!startedAt || paused) return elapsedBeforePause;
+  if (!startedAt || paused) {
+    return elapsedBeforePause;
+  }
 
   return elapsedBeforePause +
     Math.floor((Date.now() - startedAt) / 1000);
@@ -82,16 +114,23 @@ function updateStats() {
 
   $("time").textContent = formatTime(seconds);
 
-  const speed = seconds > 0 ? km / (seconds / 3600) : 0;
+  // Velocidade média calculada somente com distância válida.
+  const speed = seconds > 0
+    ? km / (seconds / 3600)
+    : 0;
 
   $("speed").textContent =
     speed.toFixed(1).replace(".", ",") + " km/h";
 
-  const pace = km > 0 ? Math.floor(seconds / km) : 0;
+  // Ritmo só aparece depois de haver distância registrada.
+  if (distanceMeters >= 10 && km > 0) {
+    const pace = Math.floor(seconds / km);
 
-  $("pace").textContent = km > 0
-    ? `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /km`
-    : "--:-- /km";
+    $("pace").textContent =
+      `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /km`;
+  } else {
+    $("pace").textContent = "--:-- /km";
+  }
 }
 
 /* MAPA */
@@ -99,7 +138,7 @@ function updateStats() {
 function initMap() {
   if (!window.L) {
     $("mapNotice").textContent =
-      "Mapa indisponível. GPS e histórico continuam disponíveis.";
+      "Mapa indisponível. GPS e histórico continuam funcionando.";
     return;
   }
 
@@ -120,9 +159,11 @@ function initMap() {
 }
 
 function drawRoute() {
-  if (!map || !route || !points.length) return;
+  if (!map || !route || points.length === 0) return;
 
-  route.setLatLngs(points.map(p => [p.lat, p.lng]));
+  route.setLatLngs(
+    points.map(point => [point.lat, point.lng])
+  );
 
   if (points.length > 1) {
     map.fitBounds(route.getBounds(), {
@@ -131,87 +172,7 @@ function drawRoute() {
   }
 }
 
-/* GPS COM PROTEÇÃO CONTRA SALTOS */
-
-function addPosition(position) {
-  if (!running || paused) return;
-
-  const accuracy = position.coords.accuracy;
-
-  if (!Number.isFinite(accuracy) || accuracy > 15) {
-    $("gpsStatus").textContent = "GPS aguardando precisão";
-    return;
-  }
-
-  const current = {
-    lat: position.coords.latitude,
-    lng: position.coords.longitude,
-    accuracy,
-    timestamp: position.timestamp
-  };
-
-  // Primeira posição serve apenas como referência.
-  if (!lastPoint) {
-    lastPoint = current;
-    points.push(current);
-
-    if (map) {
-      map.setView([current.lat, current.lng], 17);
-      marker = L.marker([current.lat, current.lng]).addTo(map);
-    }
-
-    $("gpsStatus").textContent = "GPS conectado";
-    $("gpsStatus").classList.add("active");
-
-    saveActiveSession();
-    return;
-  }
-
-  const delta = haversine(lastPoint, current);
-
-  const elapsed =
-    (current.timestamp - lastPoint.timestamp) / 1000;
-
-  if (elapsed < 2) return;
-
-  // Velocidade impossível para uma caminhada.
-  const speed = delta / elapsed;
-
-  if (speed > 2.5) {
-    return;
-  }
-
-  // Considera a margem de erro dos dois sinais GPS.
-  const minimumMovement = Math.max(
-    6,
-    (accuracy + lastPoint.accuracy) * 0.75
-  );
-
-  // Pequenas oscilações não são contabilizadas.
-  if (delta < minimumMovement) {
-    return;
-  }
-
-  if (delta > 15) {
-    return;
-  }
-
-  distanceMeters += delta;
-
-  lastPoint = current;
-  points.push(current);
-
-  if (marker && map) {
-    marker.setLatLng([current.lat, current.lng]);
-  }
-
-  $("gpsStatus").textContent = "GPS conectado";
-  $("gpsStatus").classList.add("active");
-
-  drawRoute();
-  updateStats();
-  saveActiveSession();
-}
+/* GPS */
 
 function gpsError(error) {
   const messages = {
@@ -222,13 +183,16 @@ function gpsError(error) {
 
   $("gpsStatus").textContent =
     messages[error.code] || "Erro no GPS";
-
-  $("gpsStatus").classList.remove("active");
 }
 
 function startGPS() {
   if (!navigator.geolocation) {
-    alert("GPS não disponível neste navegador.");
+    alert("Seu navegador não disponibiliza GPS.");
+    return;
+  }
+
+  if (!window.isSecureContext) {
+    alert("O GPS precisa de uma conexão HTTPS.");
     return;
   }
 
@@ -252,23 +216,117 @@ function stopGPS() {
   }
 
   $("gpsStatus").textContent = "GPS pausado";
-  $("gpsStatus").classList.remove("active");
 }
 
-/* SESSÃO */
+/*
+  FILTRO DE MOVIMENTO
 
-function saveActiveSession() {
-  if (!startedAt) return;
+  A primeira posição é somente referência.
+  Posições isoladas não geram distância.
+  O deslocamento precisa ser confirmado por
+  várias leituras GPS consecutivas.
+*/
 
-  localStorage.setItem(ACTIVE_KEY, JSON.stringify({
-    points,
-    distanceMeters,
-    startedAt,
-    elapsedBeforePause,
-    running,
-    paused
-  }));
+function addPosition(position) {
+  if (!running || paused) return;
+
+  const accuracy = position.coords.accuracy;
+
+  if (
+    !Number.isFinite(accuracy) ||
+    accuracy > 12
+  ) {
+    $("gpsStatus").textContent = "GPS aguardando precisão...";
+    return;
+  }
+
+  const current = {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    accuracy,
+    timestamp: position.timestamp
+  };
+
+  if (!lastPoint) {
+    lastPoint = current;
+    gpsCandidates = [];
+
+    if (map) {
+      map.setView([current.lat, current.lng], 17);
+      marker = L.marker([current.lat, current.lng]).addTo(map);
+    }
+
+    $("gpsStatus").textContent = "GPS conectado";
+    return;
+  }
+
+  const delta = haversine(lastPoint, current);
+
+  const elapsed =
+    (current.timestamp - lastPoint.timestamp) / 1000;
+
+  if (elapsed < 1 || elapsed > 20) return;
+
+  const threshold = Math.max(
+    8,
+    (accuracy + lastPoint.accuracy) * 1.2
+  );
+
+  if (delta < threshold) {
+    gpsCandidates = [];
+    return;
+  }
+
+  const speed = delta / elapsed;
+
+  // Não aceita velocidade incompatível com caminhada.
+  if (speed < 0.5 || speed > 2.2) {
+    gpsCandidates = [];
+    return;
+  }
+
+  gpsCandidates.push(current);
+
+  if (gpsCandidates.length < 3) return;
+
+  const confirmed =
+    gpsCandidates[gpsCandidates.length - 1];
+
+  const totalDelta = haversine(lastPoint, confirmed);
+
+  const totalTime =
+    (confirmed.timestamp - lastPoint.timestamp) / 1000;
+
+  const confirmedSpeed = totalDelta / totalTime;
+
+  if (
+    totalDelta < 8 ||
+    totalTime <= 0 ||
+    confirmedSpeed < 0.5 ||
+    confirmedSpeed > 2.2
+  ) {
+    gpsCandidates = [];
+    return;
+  }
+
+  distanceMeters += totalDelta;
+
+  lastPoint = confirmed;
+  points.push(confirmed);
+  gpsCandidates = [];
+
+  if (marker && map) {
+    marker.setLatLng([confirmed.lat, confirmed.lng]);
+  }
+
+  $("gpsStatus").textContent = "GPS conectado";
+
+  drawRoute();
+  updateStats();
+  saveActiveSession();
 }
+
+/* CONTROLES */
 
 function setControls() {
   $("startBtn").disabled = running;
@@ -282,25 +340,33 @@ function setControls() {
 function startWalk() {
   if (running) return;
 
-  // Começa sempre uma sessão limpa.
   points = [];
   distanceMeters = 0;
   elapsedBeforePause = 0;
-  lastPoint = null;
+
   startedAt = Date.now();
 
-  paused = false;
+  lastPoint = null;
+  gpsCandidates = [];
+
   running = true;
+  paused = false;
 
   localStorage.removeItem(ACTIVE_KEY);
 
-  if (route) route.setLatLngs([]);
+  if (route) {
+    route.setLatLngs([]);
+  }
 
-  if (marker && map) map.removeLayer(marker);
+  if (marker && map) {
+    map.removeLayer(marker);
+  }
+
   marker = null;
 
   startGPS();
 
+  clearInterval(timer);
   timer = setInterval(updateStats, 1000);
 
   setControls();
@@ -315,9 +381,12 @@ function pauseWalk() {
     elapsedBeforePause = getElapsed();
     paused = true;
     stopGPS();
+    gpsCandidates = [];
   } else {
     paused = false;
     startedAt = Date.now();
+    lastPoint = null;
+    gpsCandidates = [];
     startGPS();
   }
 
@@ -335,6 +404,7 @@ function finishWalk() {
   paused = false;
 
   stopGPS();
+
   clearInterval(timer);
   timer = null;
 
@@ -359,6 +429,7 @@ function finishWalk() {
   elapsedBeforePause = 0;
   startedAt = null;
   lastPoint = null;
+  gpsCandidates = [];
 
   setControls();
   updateStats();
@@ -379,13 +450,14 @@ function renderHistory() {
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (sum, item) => sum + item.distance, 0
+    (sum, item) => sum + item.distance,
+    0
   );
 
-  const formatted = formatDistance(total);
+  const formattedTotal = formatDistance(total);
 
   $("totalKm").textContent =
-    formatted.value + " " + formatted.unit;
+    formattedTotal.value + " " + formattedTotal.unit;
 
   const container = $("history");
 
@@ -412,10 +484,11 @@ function renderHistory() {
     details.textContent =
       "Tempo: " + formatTime(item.duration);
 
-    const d = formatDistance(item.distance);
+    const formatted = formatDistance(item.distance);
 
     distance.className = "history-distance";
-    distance.textContent = d.value + " " + d.unit;
+    distance.textContent =
+      formatted.value + " " + formatted.unit;
 
     info.append(date, details);
     row.append(info, distance);
@@ -423,7 +496,7 @@ function renderHistory() {
   });
 }
 
-/* EXPORTAÇÃO */
+/* EXPORTAR */
 
 function exportData() {
   const blob = new Blob(
@@ -441,7 +514,11 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+/* LOCALIZAÇÃO */
+
 function locateUser() {
+  if (!navigator.geolocation) return;
+
   navigator.geolocation.getCurrentPosition(
     position => {
       if (map) {
@@ -452,7 +529,10 @@ function locateUser() {
       }
     },
     gpsError,
-    { enableHighAccuracy: true, timeout: 20000 }
+    {
+      enableHighAccuracy: true,
+      timeout: 20000
+    }
   );
 }
 
@@ -465,12 +545,14 @@ const installMessage = $("installMessage");
 
 function updateInstallButton() {
   const installed =
-    window.matchMedia("(display-mode: standalone)").matches;
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
 
   if (installed) {
     installButton.textContent = "✓ APLICATIVO INSTALADO";
     installButton.disabled = true;
-    installMessage.textContent = "Aplicativo instalado!";
+    installMessage.textContent =
+      "Você já está usando o aplicativo instalado.";
   }
 }
 
@@ -482,7 +564,7 @@ window.addEventListener("beforeinstallprompt", event => {
 installButton.addEventListener("click", async () => {
   if (!deferredInstallPrompt) {
     installMessage.textContent =
-      "Instalação não liberada pelo Chrome. Verifique o menu do navegador.";
+      "O Chrome ainda não liberou a instalação. Verifique o menu do navegador.";
     return;
   }
 
@@ -498,7 +580,10 @@ installButton.addEventListener("click", async () => {
   deferredInstallPrompt = null;
 });
 
-window.addEventListener("appinstalled", updateInstallButton);
+window.addEventListener("appinstalled", () => {
+  updateInstallButton();
+  installMessage.textContent = "Aplicativo instalado!";
+});
 
 /* INICIALIZAÇÃO */
 
@@ -513,10 +598,10 @@ renderHistory();
 updateStats();
 updateInstallButton();
 
-// Não recupera sessões antigas com distâncias incorretas.
+// Não recupera sessões antigas que podem conter erros.
 localStorage.removeItem(ACTIVE_KEY);
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("./sw.js")
-    .catch(error => console.error(error));
+    .catch(error => console.error("Service Worker:", error));
 }
