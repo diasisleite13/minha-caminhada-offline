@@ -68,6 +68,22 @@ function formatTime(seconds) {
     .join(":");
 }
 
+/* FORMATAÇÃO AUTOMÁTICA DE METROS E KM */
+
+function formatDistance(meters) {
+  if (meters < 1000) {
+    return {
+      value: Math.round(meters).toString(),
+      unit: "m"
+    };
+  }
+
+  return {
+    value: (meters / 1000).toFixed(2).replace(".", ","),
+    unit: "km"
+  };
+}
+
 function getElapsed() {
   if (!startedAt || paused) return elapsedBeforePause;
 
@@ -76,13 +92,19 @@ function getElapsed() {
 }
 
 function updateStats() {
+  const distance = formatDistance(distanceMeters);
+
+  $("distance").textContent = distance.value;
+  $("distance").nextElementSibling.textContent = distance.unit;
+
   const km = distanceMeters / 1000;
   const seconds = getElapsed();
 
-  $("distance").textContent = km.toFixed(2).replace(".", ",");
   $("time").textContent = formatTime(seconds);
 
-  const speed = seconds > 0 ? km / (seconds / 3600) : 0;
+  const speed = seconds > 0
+    ? km / (seconds / 3600)
+    : 0;
 
   $("speed").textContent =
     speed.toFixed(1).replace(".", ",") + " km/h";
@@ -94,19 +116,24 @@ function updateStats() {
     : "--:-- /km";
 }
 
+/* MAPA */
+
 function initMap() {
   if (!window.L) {
     $("mapNotice").textContent =
-      "Mapa indisponível. O GPS e o histórico continuam disponíveis.";
+      "Mapa indisponível. GPS e histórico continuam disponíveis.";
     return;
   }
 
   map = L.map("map").setView([-5.8, -36.5], 6);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap contributors",
-    maxZoom: 19
-  }).addTo(map);
+  L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19
+    }
+  ).addTo(map);
 
   route = L.polyline([], {
     color: "#168653",
@@ -117,19 +144,26 @@ function initMap() {
 function drawRoute() {
   if (!map || !route || !points.length) return;
 
-  route.setLatLngs(points.map(p => [p.lat, p.lng]));
+  route.setLatLngs(
+    points.map(p => [p.lat, p.lng])
+  );
 
   if (points.length > 1) {
-    map.fitBounds(route.getBounds(), { padding: [30, 30] });
+    map.fitBounds(route.getBounds(), {
+      padding: [30, 30]
+    });
   }
 }
+
+/* GPS COM FILTRO DE MOVIMENTO */
 
 function addPosition(position) {
   if (!running || paused) return;
 
   const accuracy = position.coords.accuracy;
 
-  if (accuracy > 35) return;
+  // Ignora posições com precisão muito baixa.
+  if (accuracy > 20) return;
 
   const current = {
     lat: position.coords.latitude,
@@ -141,7 +175,19 @@ function addPosition(position) {
   if (lastPoint) {
     const delta = haversine(lastPoint, current);
 
-    if (delta < 3 || delta > 100) return;
+    const elapsedSeconds =
+      (current.timestamp - lastPoint.timestamp) / 1000;
+
+    if (elapsedSeconds <= 0) return;
+
+    // Ignora oscilações pequenas do GPS.
+    if (delta < 3) return;
+
+    // Ignora saltos impossíveis para uma caminhada.
+    if (delta / elapsedSeconds > 3) return;
+
+    // Evita saltos muito grandes.
+    if (delta > 25) return;
 
     distanceMeters += delta;
   }
@@ -151,9 +197,15 @@ function addPosition(position) {
 
   if (map) {
     if (!marker) {
-      marker = L.marker([current.lat, current.lng]).addTo(map);
+      marker = L.marker([
+        current.lat,
+        current.lng
+      ]).addTo(map);
     } else {
-      marker.setLatLng([current.lat, current.lng]);
+      marker.setLatLng([
+        current.lat,
+        current.lng
+      ]);
     }
   }
 
@@ -185,7 +237,7 @@ function startGPS() {
   }
 
   if (!window.isSecureContext) {
-    alert("O GPS exige uma conexão HTTPS.");
+    alert("O GPS exige conexão HTTPS.");
     return false;
   }
 
@@ -200,6 +252,7 @@ function startGPS() {
   );
 
   $("gpsStatus").textContent = "Buscando GPS...";
+
   return true;
 }
 
@@ -212,6 +265,8 @@ function stopGPS() {
   $("gpsStatus").textContent = "GPS pausado";
   $("gpsStatus").classList.remove("active");
 }
+
+/* CONTROLES */
 
 function setControls() {
   $("startBtn").disabled = running;
@@ -236,7 +291,10 @@ function startWalk() {
 
   if (route) route.setLatLngs([]);
 
-  if (marker && map) map.removeLayer(marker);
+  if (marker && map) {
+    map.removeLayer(marker);
+  }
+
   marker = null;
 
   startGPS();
@@ -275,6 +333,7 @@ function finishWalk() {
   paused = false;
 
   stopGPS();
+
   clearInterval(timer);
   timer = null;
 
@@ -288,6 +347,7 @@ function finishWalk() {
 
   if (record.distance >= 5) {
     const history = loadHistory();
+
     history.unshift(record);
     saveHistory(history);
   }
@@ -311,17 +371,22 @@ function finishWalk() {
   );
 }
 
+/* HISTÓRICO */
+
 function renderHistory() {
   const history = loadHistory();
 
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (sum, item) => sum + item.distance, 0
+    (sum, item) => sum + item.distance,
+    0
   );
 
+  const totalFormatted = formatDistance(total);
+
   $("totalKm").textContent =
-    (total / 1000).toFixed(2).replace(".", ",") + " km";
+    totalFormatted.value + " " + totalFormatted.unit;
 
   const container = $("history");
 
@@ -348,15 +413,19 @@ function renderHistory() {
     details.textContent =
       "Tempo: " + formatTime(item.duration);
 
+    const formatted = formatDistance(item.distance);
+
     distance.className = "history-distance";
     distance.textContent =
-      (item.distance / 1000).toFixed(2).replace(".", ",") + " km";
+      formatted.value + " " + formatted.unit;
 
     info.append(date, details);
     row.append(info, distance);
     container.append(row);
   });
 }
+
+/* EXPORTAR */
 
 function exportData() {
   const blob = new Blob(
@@ -374,6 +443,8 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+/* LOCALIZAÇÃO */
+
 function locateUser() {
   if (!navigator.geolocation) return;
 
@@ -387,17 +458,26 @@ function locateUser() {
       }
     },
     gpsError,
-    { enableHighAccuracy: true, timeout: 20000 }
+    {
+      enableHighAccuracy: true,
+      timeout: 20000
+    }
   );
 }
 
+/* RECUPERAR CAMINHADA */
+
 function restoreSession() {
   try {
-    const session = JSON.parse(localStorage.getItem(ACTIVE_KEY));
+    const session = JSON.parse(
+      localStorage.getItem(ACTIVE_KEY)
+    );
 
     if (!session) return;
 
-    if (confirm("Existe uma caminhada não finalizada. Deseja recuperá-la?")) {
+    if (confirm(
+      "Existe uma caminhada não finalizada. Deseja recuperá-la?"
+    )) {
       points = session.points || [];
       distanceMeters = session.distanceMeters || 0;
       startedAt = session.startedAt;
@@ -407,7 +487,9 @@ function restoreSession() {
       running = true;
 
       if (route) {
-        route.setLatLngs(points.map(p => [p.lat, p.lng]));
+        route.setLatLngs(
+          points.map(p => [p.lat, p.lng])
+        );
       }
 
       setControls();
@@ -420,20 +502,19 @@ function restoreSession() {
   }
 }
 
-/* INSTALAÇÃO PWA */
+/* INSTALAÇÃO */
 
 let deferredInstallPrompt = null;
 
 const installButton = $("installBtn");
 const installMessage = $("installMessage");
 
-function isInstalled() {
-  return window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true;
-}
-
 function updateInstallButton() {
-  if (isInstalled()) {
+  const installed =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+
+  if (installed) {
     installButton.textContent = "✓ APLICATIVO INSTALADO";
     installButton.disabled = true;
     installMessage.textContent =
@@ -444,22 +525,13 @@ function updateInstallButton() {
 window.addEventListener("beforeinstallprompt", event => {
   event.preventDefault();
   deferredInstallPrompt = event;
-
-  installButton.textContent = "📲 INSTALAR APLICATIVO";
-  installMessage.textContent = "Toque para instalar no seu Android.";
 });
 
 installButton.addEventListener("click", async () => {
-  if (isInstalled()) {
-    installMessage.textContent = "O aplicativo já está instalado.";
-    return;
-  }
-
   if (!deferredInstallPrompt) {
     installMessage.textContent =
-      "O Chrome ainda não liberou a instalação. " +
-      "Verifique se o site está em HTTPS e se o manifesto e o Service Worker foram carregados. " +
-      "Você também pode usar Adicionar à tela inicial no menu do Chrome.";
+      "A instalação ainda não está disponível. " +
+      "Use o menu do Chrome para verificar a opção Instalar aplicativo.";
 
     return;
   }
@@ -468,18 +540,17 @@ installButton.addEventListener("click", async () => {
 
   const result = await deferredInstallPrompt.userChoice;
 
-  if (result.outcome === "accepted") {
-    installMessage.textContent = "Instalação solicitada.";
-  } else {
-    installMessage.textContent = "Instalação cancelada.";
-  }
+  installMessage.textContent =
+    result.outcome === "accepted"
+      ? "Instalação solicitada!"
+      : "Instalação cancelada.";
 
   deferredInstallPrompt = null;
 });
 
 window.addEventListener("appinstalled", () => {
   updateInstallButton();
-  installMessage.textContent = "Aplicativo instalado com sucesso!";
+  installMessage.textContent = "Aplicativo instalado!";
 });
 
 $("startBtn").addEventListener("click", startWalk);
@@ -495,5 +566,5 @@ updateInstallButton();
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("./sw.js")
-    .catch(error => console.error("Service Worker:", error));
+    .catch(error => console.error(error));
 }
