@@ -78,11 +78,6 @@ main {
   font-weight: bold;
   border: none;
   cursor: pointer;
-  box-shadow: 0 3px 8px #0002;
-}
-
-.install-btn:active {
-  transform: scale(.98);
 }
 
 .install-area p {
@@ -174,6 +169,7 @@ h2 {
   border-radius: 12px;
   background: #e5ece7;
   overflow: hidden;
+  z-index: 1;
 }
 
 .notice {
@@ -252,12 +248,12 @@ button:disabled {
 }
 
 .performance-card small {
-  color: var(--muted);
+  color: #75867c;
   font-size: 12px;
 }
 
 .performance-card strong {
-  color: var(--dark);
+  color: #123d2c;
   font-size: 19px;
   overflow-wrap: anywhere;
 }
@@ -269,7 +265,7 @@ button:disabled {
 
 .record-date {
   font-size: 11px;
-  color: var(--muted);
+  color: #75867c;
 }
 
 /* HISTÓRICO */
@@ -331,8 +327,6 @@ button:disabled {
   text-align: center;
   padding: 15px;
 }
-
-/* RODAPÉ */
 
 footer {
   text-align: center;
