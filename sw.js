@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "minha-caminhada-v1";
+const CACHE_NAME = "minha-caminhada-v2";
 
 const APP_FILES = [
   "./",
@@ -37,7 +37,6 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(request.url);
 
-  // Arquivos do próprio aplicativo: primeiro cache.
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(request).then(cached => {
@@ -46,9 +45,11 @@ self.addEventListener("fetch", event => {
         return fetch(request).then(response => {
           if (response.ok) {
             const copy = response.clone();
+
             caches.open(CACHE_NAME)
               .then(cache => cache.put(request, copy));
           }
+
           return response;
         });
       })
