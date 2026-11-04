@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -6,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
   <meta name="theme-color" content="#123d2c">
-  <meta name="description" content="Registre suas caminhadas com GPS, distância e histórico, mesmo sem internet.">
+  <meta name="description" content="Aplicativo de caminhada com GPS, distância e histórico offline.">
 
   <title>Minha Caminhada Offline</title>
 
@@ -14,7 +13,8 @@
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css">
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 
 <body>
@@ -37,20 +37,23 @@
     <button id="installBtn" class="install-btn">
       📲 INSTALAR APLICATIVO
     </button>
+
     <p id="installMessage">
-      Instale no seu Android para acessar pela tela inicial.
+      Instale no Android para acessar pela tela inicial.
     </p>
   </section>
 
   <section class="distance-card">
+
     <small>DISTÂNCIA PERCORRIDA</small>
 
     <div class="distance">
-      <strong id="distance">0,00</strong>
-      <span>km</span>
+      <strong id="distance">0</strong>
+      <span id="distanceUnit">m</span>
     </div>
 
     <div class="stats">
+
       <div>
         <small>Tempo</small>
         <strong id="time">00:00:00</strong>
@@ -65,24 +68,30 @@
         <small>Ritmo médio</small>
         <strong id="pace">--:-- /km</strong>
       </div>
+
     </div>
   </section>
 
   <section class="map-section">
+
     <div class="section-title">
       <h2>Seu percurso</h2>
-      <button id="locateBtn" class="small-btn">Minha posição</button>
+      <button id="locateBtn" class="small-btn">
+        Minha posição
+      </button>
     </div>
 
     <div id="map"></div>
 
     <p id="mapNotice" class="notice">
-      O mapa online precisa ser carregado previamente.
-      O GPS funciona sem internet.
+      O mapa precisa ser carregado pela internet.
+      O registro GPS funciona offline.
     </p>
+
   </section>
 
   <section class="controls">
+
     <button id="startBtn" class="primary">
       ▶ Iniciar caminhada
     </button>
@@ -94,17 +103,21 @@
     <button id="finishBtn" class="danger" disabled>
       ■ Finalizar
     </button>
+
   </section>
 
   <section class="history-section">
+
     <div class="section-title">
       <h2>Meu histórico</h2>
+
       <button id="exportBtn" class="small-btn">
         Exportar dados
       </button>
     </div>
 
     <div class="history-summary">
+
       <div>
         <small>Total de caminhadas</small>
         <strong id="totalWalks">0</strong>
@@ -114,11 +127,15 @@
         <small>Distância acumulada</small>
         <strong id="totalKm">0 km</strong>
       </div>
+
     </div>
 
     <div id="history">
-      <p class="empty">Suas caminhadas aparecerão aqui.</p>
+      <p class="empty">
+        Suas caminhadas aparecerão aqui.
+      </p>
     </div>
+
   </section>
 
 </main>
