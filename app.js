@@ -45,6 +45,7 @@ function saveActiveSession() {
 function haversine(a, b) {
   const R = 6371000;
   const rad = x => x * Math.PI / 180;
+
   const dLat = rad(b.lat - a.lat);
   const dLon = rad(b.lng - a.lng);
 
@@ -67,9 +68,7 @@ function formatTime(seconds) {
 }
 
 function getElapsed() {
-  if (!startedAt) return elapsedBeforePause;
-
-  if (paused) return elapsedBeforePause;
+  if (!startedAt || paused) return elapsedBeforePause;
 
   return elapsedBeforePause +
     Math.floor((Date.now() - startedAt) / 1000);
@@ -79,41 +78,41 @@ function updateStats() {
   const km = distanceMeters / 1000;
   const seconds = getElapsed();
 
-  $("distance").textContent = km.toFixed(2).replace(".", ",");
+  $("distance").textContent =
+    km.toFixed(2).replace(".", ",");
+
   $("time").textContent = formatTime(seconds);
 
   const speed = seconds > 0
-    ? (km / (seconds / 3600))
+    ? km / (seconds / 3600)
     : 0;
 
-  $("speed").textContent = speed.toFixed(1).replace(".", ",") + " km/h";
+  $("speed").textContent =
+    speed.toFixed(1).replace(".", ",") + " km/h";
 
-  const pace = km > 0
-    ? Math.floor(seconds / km)
-    : 0;
+  const pace = km > 0 ? Math.floor(seconds / km) : 0;
 
   $("pace").textContent = km > 0
     ? `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /km`
     : "--:-- /km";
 }
 
-function updateTimer() {
-  updateStats();
-}
-
 function initMap() {
   if (!window.L) {
     $("mapNotice").textContent =
-      "Biblioteca do mapa indisponível. O GPS e o registro de caminhadas continuam disponíveis.";
+      "Mapa indisponível. O GPS e o histórico continuam disponíveis.";
     return;
   }
 
   map = L.map("map").setView([-5.8, -36.5], 6);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
-  }).addTo(map);
+  L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
+    }
+  ).addTo(map);
 
   route = L.polyline([], {
     color: "#168653",
@@ -121,16 +120,18 @@ function initMap() {
   }).addTo(map);
 
   $("mapNotice").textContent =
-    "Para visualizar o mapa, carregue a região enquanto estiver conectado. O percurso GPS é armazenado no aparelho.";
+    "O mapa online precisa ser carregado previamente. O registro GPS funciona sem internet.";
 }
 
 function drawRoute() {
-  if (!map || !route) return;
+  if (!map || !route || !points.length) return;
 
   route.setLatLngs(points.map(p => [p.lat, p.lng]));
 
-  if (points.length) {
-    map.fitBounds(route.getBounds(), { padding: [30, 30] });
+  if (points.length > 1) {
+    map.fitBounds(route.getBounds(), {
+      padding: [30, 30]
+    });
   }
 }
 
@@ -139,7 +140,6 @@ function addPosition(position) {
 
   const accuracy = position.coords.accuracy;
 
-  // Evita registrar posições com precisão muito ruim.
   if (accuracy > 35) return;
 
   const current = {
@@ -152,7 +152,6 @@ function addPosition(position) {
   if (lastPoint) {
     const delta = haversine(lastPoint, current);
 
-    // Filtra saltos grandes ou leituras quase duplicadas.
     if (delta < 3 || delta > 100) return;
 
     distanceMeters += delta;
@@ -177,7 +176,7 @@ function addPosition(position) {
 function gpsError(error) {
   const messages = {
     1: "Permissão de localização negada.",
-    2: "Sinal GPS indisponível. Tente ir para uma área aberta.",
+    2: "Sinal GPS indisponível. Tente uma área aberta.",
     3: "Tempo esgotado ao buscar o GPS."
   };
 
@@ -192,7 +191,7 @@ function startGPS() {
   }
 
   if (!window.isSecureContext) {
-    alert("O GPS exige HTTPS. Use o endereço seguro do GitHub Pages.");
+    alert("O GPS exige HTTPS.");
     return false;
   }
 
@@ -207,6 +206,7 @@ function startGPS() {
   );
 
   $("gpsStatus").textContent = "Buscando GPS...";
+
   return true;
 }
 
@@ -221,32 +221,36 @@ function setControls() {
   $("startBtn").disabled = running;
   $("pauseBtn").disabled = !running;
   $("finishBtn").disabled = !running;
-  $("pauseBtn").textContent = paused ? "▶ Continuar" : "Ⅱ Pausar";
+
+  $("pauseBtn").textContent =
+    paused ? "▶ Continuar" : "Ⅱ Pausar";
 }
 
 function startWalk() {
   if (running) return;
-
-  if (!navigator.geolocation) {
-    alert("GPS não disponível neste aparelho.");
-    return;
-  }
 
   points = [];
   distanceMeters = 0;
   elapsedBeforePause = 0;
   lastPoint = null;
   startedAt = Date.now();
+
   paused = false;
   running = true;
 
   if (route) route.setLatLngs([]);
-  if (marker && map) map.removeLayer(marker);
+
+  if (marker && map) {
+    map.removeLayer(marker);
+  }
+
   marker = null;
 
   startGPS();
 
-  timer = setInterval(updateTimer, 1000);
+  timer = setInterval(() => {
+    updateStats();
+  }, 1000);
 
   setControls();
   updateStats();
@@ -280,6 +284,7 @@ function finishWalk() {
   paused = false;
 
   stopGPS();
+
   clearInterval(timer);
   timer = null;
 
@@ -293,6 +298,7 @@ function finishWalk() {
 
   if (record.distance >= 5) {
     const history = loadHistory();
+
     history.unshift(record);
     saveHistory(history);
   }
@@ -310,7 +316,7 @@ function finishWalk() {
   renderHistory();
 
   if (record.distance < 5) {
-    alert("Caminhada muito curta para ser salva. Nenhum percurso foi adicionado ao histórico.");
+    alert("Caminhada muito curta para ser salva.");
   } else {
     alert("Caminhada salva com sucesso!");
   }
@@ -322,7 +328,8 @@ function renderHistory() {
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (sum, item) => sum + item.distance, 0
+    (sum, item) => sum + item.distance,
+    0
   );
 
   $("totalKm").textContent =
@@ -347,9 +354,14 @@ function renderHistory() {
     const details = document.createElement("small");
     const distance = document.createElement("span");
 
-    date.textContent = new Date(item.date).toLocaleDateString("pt-BR");
-    details.textContent = "Tempo: " + formatTime(item.duration);
+    date.textContent =
+      new Date(item.date).toLocaleDateString("pt-BR");
+
+    details.textContent =
+      "Tempo: " + formatTime(item.duration);
+
     distance.className = "history-distance";
+
     distance.textContent =
       (item.distance / 1000).toFixed(2).replace(".", ",") + " km";
 
@@ -390,36 +402,44 @@ function locateUser() {
       }
     },
     gpsError,
-    { enableHighAccuracy: true, timeout: 20000 }
+    {
+      enableHighAccuracy: true,
+      timeout: 20000
+    }
   );
 }
 
 function restoreSession() {
   try {
-    const session = JSON.parse(localStorage.getItem(ACTIVE_KEY));
+    const session = JSON.parse(
+      localStorage.getItem(ACTIVE_KEY)
+    );
 
     if (!session) return;
 
-    if (confirm("Existe uma caminhada não finalizada. Deseja recuperá-la?")) {
+    if (confirm(
+      "Existe uma caminhada não finalizada. Deseja recuperá-la?"
+    )) {
       points = session.points || [];
       distanceMeters = session.distanceMeters || 0;
       startedAt = session.startedAt;
       elapsedBeforePause = session.elapsedBeforePause || 0;
+
       paused = true;
       running = true;
 
       if (route) {
-        route.setLatLngs(points.map(p => [p.lat, p.lng]));
-      }
-
-      if (points.length && map) {
-        map.setView(
-          [points[points.length - 1].lat, points[points.length - 1].lng],
-          16
+        route.setLatLngs(
+          points.map(p => [p.lat, p.lng])
         );
       }
 
-      // Recuperação segura: começa pausado.
+      if (points.length && map) {
+        const last = points[points.length - 1];
+
+        map.setView([last.lat, last.lng], 16);
+      }
+
       setControls();
       updateStats();
     } else {
@@ -430,6 +450,63 @@ function restoreSession() {
   }
 }
 
+/* INSTALAÇÃO DO APLICATIVO */
+
+let deferredInstallPrompt = null;
+
+const installButton = $("installBtn");
+
+function checkInstalled() {
+  const isInstalled =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+
+  if (isInstalled) {
+    installButton.textContent = "✓ APLICATIVO INSTALADO";
+    installButton.classList.add("installed");
+    installButton.disabled = true;
+  }
+}
+
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault();
+
+  deferredInstallPrompt = event;
+
+  installButton.hidden = false;
+});
+
+installButton.addEventListener("click", async () => {
+  if (!deferredInstallPrompt) {
+    alert(
+      "Para instalar o aplicativo:\n\n" +
+      "1. Abra o menu do Chrome (⋮).\n" +
+      "2. Escolha 'Instalar aplicativo' ou 'Adicionar à tela inicial'.\n" +
+      "3. Confirme a instalação."
+    );
+
+    return;
+  }
+
+  deferredInstallPrompt.prompt();
+
+  const result = await deferredInstallPrompt.userChoice;
+
+  if (result.outcome === "accepted") {
+    installButton.textContent = "✓ INSTALAÇÃO SOLICITADA";
+  }
+
+  deferredInstallPrompt = null;
+});
+
+window.addEventListener("appinstalled", () => {
+  installButton.textContent = "✓ APLICATIVO INSTALADO";
+  installButton.classList.add("installed");
+  installButton.disabled = true;
+
+  deferredInstallPrompt = null;
+});
+
 $("startBtn").addEventListener("click", startWalk);
 $("pauseBtn").addEventListener("click", pauseWalk);
 $("finishBtn").addEventListener("click", finishWalk);
@@ -439,8 +516,11 @@ $("locateBtn").addEventListener("click", locateUser);
 initMap();
 renderHistory();
 restoreSession();
+checkInstalled();
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("./sw.js")
-    .catch(error => console.error("Erro no Service Worker:", error));
+    .catch(error => {
+      console.error("Erro no Service Worker:", error);
+    });
 }
