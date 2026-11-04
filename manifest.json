@@ -1,5 +1,6 @@
 
 {
+  "id": "./",
   "name": "Minha Caminhada Offline",
   "short_name": "Caminhada",
   "description": "GPS e histórico de caminhadas sem internet.",
@@ -10,10 +11,23 @@
   "orientation": "portrait",
   "background_color": "#f3f7f4",
   "theme_color": "#123d2c",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "./icon.svg",
       "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any"
     }
