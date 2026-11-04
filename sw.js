@@ -1,7 +1,5 @@
-
-const CACHE_NAME = "minha-caminhada-v10";
-
-const FILES = [
+const CACHE_NAME = "minha-caminhada-v12";
+const APP_FILES = [
   "./",
   "./index.html",
   "./style.css",
@@ -10,78 +8,132 @@ const FILES = [
   "./icon.svg"
 ];
 
-self.addEventListener("install", event => {
+const CDN_HOSTS = ["unpkg.com"];
+
+self.addEventListener("install", event =>
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(FILES))
+      .then(cache => cache.addAll(APP_FILES))
       .then(() => self.skipWaiting())
-  );
-});
+  )
+);
 
-self.addEventListener("activate", event => {
+self.addEventListener("activate", event =>
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys
-          .filter(key =>
-            key.startsWith("minha-caminhada-") &&
-            key !== CACHE_NAME
-          )
-          .map(key => caches.delete(key))
+    caches.keys()
+      .then(keys =>
+        Promise.all(
+          keys
+            .filter(k => k.startsWith("minha-caminhada-") && k !== CACHE_NAME)
+            .map(k => caches.delete(k))
+        )
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim())
+  )
+);
+
+function openMapDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("minha-caminhada-dados-v2", 1);
+
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains("data")) {
+        req.result.createObjectStore("data");
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function readMap() {
+  return openMapDB().then(db =>
+    new Promise((resolve, reject) => {
+      const req = db.transaction("data", "readonly")
+        .objectStore("data")
+        .get("offline-map");
+
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    })
   );
-});
+}
+
+async function serveArchive(request) {
+  const item = await readMap();
+
+  if (!item || !item.blob) {
+    return new Response("Mapa offline não instalado.", { status: 404 });
+  }
+
+  const blob = item.blob;
+  const size = blob.size;
+  const range = request.headers.get("Range");
+
+  const headers = {
+    "Content-Type": "application/vnd.pmtiles",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "no-store"
+  };
+
+  if (!range) {
+    headers["Content-Length"] = String(size);
+    return new Response(blob, { status: 200, headers });
+  }
+
+  const match = /bytes=(\d*)-(\d*)/.exec(range);
+
+  if (!match) {
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${size}` }
+    });
+  }
+
+  let start = match[1]
+    ? Number(match[1])
+    : Math.max(0, size - Number(match[2]));
+
+  let end = match[2] && match[1]
+    ? Number(match[2])
+    : size - 1;
+
+  if (start >= size || end < start) {
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${size}` }
+    });
+  }
+
+  end = Math.min(end, size - 1);
+
+  const part = blob.slice(start, end + 1);
+
+  headers["Content-Length"] = String(part.size);
+  headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+
+  return new Response(part, {
+    status: 206,
+    headers
+  });
+}
 
 self.addEventListener("fetch", event => {
   const request = event.request;
 
-  if (request.method !== "GET") return;
+  if (request.method !== "GET" && request.method !== "HEAD") return;
 
   const url = new URL(request.url);
 
-  // Arquivos da biblioteca Leaflet:
-  // armazenar para permitir uso offline posterior.
   if (
-    url.hostname === "unpkg.com" &&
-    url.pathname.includes("/leaflet@1.9.4/")
+    url.origin === self.location.origin &&
+    url.pathname.endsWith("/offline-map/current.pmtiles")
   ) {
-    event.respondWith(
-      caches.match(request).then(async cached => {
-        if (cached) return cached;
-
-        try {
-          const response = await fetch(request);
-
-          if (response.ok || response.type === "opaque") {
-            const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, response.clone());
-          }
-
-          return response;
-
-        } catch (error) {
-          return new Response(
-            "Biblioteca Leaflet indisponível offline.",
-            { status: 503 }
-          );
-        }
-      })
-    );
-
+    event.respondWith(serveArchive(request));
     return;
   }
 
-  // Não armazenar automaticamente todos os
-  // blocos de mapas, pois isso pode consumir
-  // muito espaço no aparelho.
-  if (
-    url.hostname.endsWith("openstreetmap.org")
-  ) {
-    return;
-  }
-
-  // Arquivos do próprio aplicativo.
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(request).then(async cached => {
@@ -92,24 +144,43 @@ self.addEventListener("fetch", event => {
 
           if (response.ok) {
             const cache = await caches.open(CACHE_NAME);
-
-            await cache.put(
-              request,
-              response.clone()
-            );
+            cache.put(request, response.clone());
           }
 
           return response;
-
         } catch (error) {
           if (request.mode === "navigate") {
-            return await caches.match("./index.html");
+            return caches.match("./index.html");
           }
 
-          return new Response(
-            "Arquivo indisponível offline.",
-            { status: 503 }
-          );
+          return new Response("Arquivo indisponível offline.", {
+            status: 503
+          });
+        }
+      })
+    );
+
+    return;
+  }
+
+  if (CDN_HOSTS.includes(url.hostname)) {
+    event.respondWith(
+      caches.match(request).then(async cached => {
+        if (cached) return cached;
+
+        try {
+          const response = await fetch(request);
+
+          if (response.ok || response.type === "opaque") {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, response.clone());
+          }
+
+          return response;
+        } catch (error) {
+          return new Response("Biblioteca indisponível offline.", {
+            status: 503
+          });
         }
       })
     );
