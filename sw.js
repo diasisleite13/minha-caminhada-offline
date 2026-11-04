@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "minha-caminhada-v6";
+const CACHE_NAME = "minha-caminhada-v8";
 
 const FILES = [
   "./",
@@ -7,7 +7,9 @@ const FILES = [
   "./style.css",
   "./app.js",
   "./manifest.json",
-  "./icon.svg"
+  "./icon.svg",
+  "./vendor/leaflet.js",
+  "./vendor/leaflet.css"
 ];
 
 self.addEventListener("install", event => {
@@ -42,44 +44,31 @@ self.addEventListener("fetch", event => {
 
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (response.ok) {
-            const copy = response.clone();
-
-            caches.open(CACHE_NAME).then(cache => {
-              cache.put("./", copy);
-            });
-          }
-
-          return response;
-        })
-        .catch(async () => {
-          return await caches.match("./") ||
-            await caches.match("./index.html");
-        })
-    );
-
-    return;
-  }
-
   event.respondWith(
-    caches.match(request).then(cached => {
+    caches.match(request).then(async cached => {
       if (cached) return cached;
 
-      return fetch(request).then(response => {
+      try {
+        const response = await fetch(request);
+
         if (response.ok) {
           const copy = response.clone();
 
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(request, copy);
-          });
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, copy);
         }
 
         return response;
-      });
+
+      } catch (error) {
+        if (request.mode === "navigate") {
+          return await caches.match("./index.html");
+        }
+
+        return new Response("Arquivo não disponível offline.", {
+          status: 503
+        });
+      }
     })
   );
 });
