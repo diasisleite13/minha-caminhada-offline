@@ -51,7 +51,8 @@ function haversine(a, b) {
 
   const value =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) *
+    Math.cos(rad(a.lat)) *
+    Math.cos(rad(b.lat)) *
     Math.sin(dLon / 2) ** 2;
 
   return 2 * R * Math.asin(Math.sqrt(value));
@@ -78,14 +79,10 @@ function updateStats() {
   const km = distanceMeters / 1000;
   const seconds = getElapsed();
 
-  $("distance").textContent =
-    km.toFixed(2).replace(".", ",");
-
+  $("distance").textContent = km.toFixed(2).replace(".", ",");
   $("time").textContent = formatTime(seconds);
 
-  const speed = seconds > 0
-    ? km / (seconds / 3600)
-    : 0;
+  const speed = seconds > 0 ? km / (seconds / 3600) : 0;
 
   $("speed").textContent =
     speed.toFixed(1).replace(".", ",") + " km/h";
@@ -106,21 +103,15 @@ function initMap() {
 
   map = L.map("map").setView([-5.8, -36.5], 6);
 
-  L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
-    }
-  ).addTo(map);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19
+  }).addTo(map);
 
   route = L.polyline([], {
     color: "#168653",
     weight: 5
   }).addTo(map);
-
-  $("mapNotice").textContent =
-    "O mapa online precisa ser carregado previamente. O registro GPS funciona sem internet.";
 }
 
 function drawRoute() {
@@ -129,9 +120,7 @@ function drawRoute() {
   route.setLatLngs(points.map(p => [p.lat, p.lng]));
 
   if (points.length > 1) {
-    map.fitBounds(route.getBounds(), {
-      padding: [30, 30]
-    });
+    map.fitBounds(route.getBounds(), { padding: [30, 30] });
   }
 }
 
@@ -168,6 +157,9 @@ function addPosition(position) {
     }
   }
 
+  $("gpsStatus").textContent = "GPS conectado";
+  $("gpsStatus").classList.add("active");
+
   drawRoute();
   updateStats();
   saveActiveSession();
@@ -176,22 +168,24 @@ function addPosition(position) {
 function gpsError(error) {
   const messages = {
     1: "Permissão de localização negada.",
-    2: "Sinal GPS indisponível. Tente uma área aberta.",
-    3: "Tempo esgotado ao buscar o GPS."
+    2: "Sinal GPS indisponível.",
+    3: "Tempo esgotado ao buscar GPS."
   };
 
   $("gpsStatus").textContent =
     messages[error.code] || "Erro no GPS";
+
+  $("gpsStatus").classList.remove("active");
 }
 
 function startGPS() {
   if (!navigator.geolocation) {
-    alert("Seu navegador não oferece suporte ao GPS.");
+    alert("GPS não disponível neste navegador.");
     return false;
   }
 
   if (!window.isSecureContext) {
-    alert("O GPS exige HTTPS.");
+    alert("O GPS exige uma conexão HTTPS.");
     return false;
   }
 
@@ -206,7 +200,6 @@ function startGPS() {
   );
 
   $("gpsStatus").textContent = "Buscando GPS...";
-
   return true;
 }
 
@@ -215,6 +208,9 @@ function stopGPS() {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
+
+  $("gpsStatus").textContent = "GPS pausado";
+  $("gpsStatus").classList.remove("active");
 }
 
 function setControls() {
@@ -240,17 +236,12 @@ function startWalk() {
 
   if (route) route.setLatLngs([]);
 
-  if (marker && map) {
-    map.removeLayer(marker);
-  }
-
+  if (marker && map) map.removeLayer(marker);
   marker = null;
 
   startGPS();
 
-  timer = setInterval(() => {
-    updateStats();
-  }, 1000);
+  timer = setInterval(updateStats, 1000);
 
   setControls();
   updateStats();
@@ -284,7 +275,6 @@ function finishWalk() {
   paused = false;
 
   stopGPS();
-
   clearInterval(timer);
   timer = null;
 
@@ -298,7 +288,6 @@ function finishWalk() {
 
   if (record.distance >= 5) {
     const history = loadHistory();
-
     history.unshift(record);
     saveHistory(history);
   }
@@ -315,11 +304,11 @@ function finishWalk() {
   updateStats();
   renderHistory();
 
-  if (record.distance < 5) {
-    alert("Caminhada muito curta para ser salva.");
-  } else {
-    alert("Caminhada salva com sucesso!");
-  }
+  alert(
+    record.distance >= 5
+      ? "Caminhada salva com sucesso!"
+      : "Caminhada muito curta para ser salva."
+  );
 }
 
 function renderHistory() {
@@ -328,8 +317,7 @@ function renderHistory() {
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (sum, item) => sum + item.distance,
-    0
+    (sum, item) => sum + item.distance, 0
   );
 
   $("totalKm").textContent =
@@ -361,7 +349,6 @@ function renderHistory() {
       "Tempo: " + formatTime(item.duration);
 
     distance.className = "history-distance";
-
     distance.textContent =
       (item.distance / 1000).toFixed(2).replace(".", ",") + " km";
 
@@ -372,10 +359,8 @@ function renderHistory() {
 }
 
 function exportData() {
-  const history = loadHistory();
-
   const blob = new Blob(
-    [JSON.stringify(history, null, 2)],
+    [JSON.stringify(loadHistory(), null, 2)],
     { type: "application/json" }
   );
 
@@ -394,32 +379,25 @@ function locateUser() {
 
   navigator.geolocation.getCurrentPosition(
     position => {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-
       if (map) {
-        map.setView([lat, lng], 17);
+        map.setView([
+          position.coords.latitude,
+          position.coords.longitude
+        ], 17);
       }
     },
     gpsError,
-    {
-      enableHighAccuracy: true,
-      timeout: 20000
-    }
+    { enableHighAccuracy: true, timeout: 20000 }
   );
 }
 
 function restoreSession() {
   try {
-    const session = JSON.parse(
-      localStorage.getItem(ACTIVE_KEY)
-    );
+    const session = JSON.parse(localStorage.getItem(ACTIVE_KEY));
 
     if (!session) return;
 
-    if (confirm(
-      "Existe uma caminhada não finalizada. Deseja recuperá-la?"
-    )) {
+    if (confirm("Existe uma caminhada não finalizada. Deseja recuperá-la?")) {
       points = session.points || [];
       distanceMeters = session.distanceMeters || 0;
       startedAt = session.startedAt;
@@ -429,15 +407,7 @@ function restoreSession() {
       running = true;
 
       if (route) {
-        route.setLatLngs(
-          points.map(p => [p.lat, p.lng])
-        );
-      }
-
-      if (points.length && map) {
-        const last = points[points.length - 1];
-
-        map.setView([last.lat, last.lng], 16);
+        route.setLatLngs(points.map(p => [p.lat, p.lng]));
       }
 
       setControls();
@@ -450,40 +420,46 @@ function restoreSession() {
   }
 }
 
-/* INSTALAÇÃO DO APLICATIVO */
+/* INSTALAÇÃO PWA */
 
 let deferredInstallPrompt = null;
 
 const installButton = $("installBtn");
+const installMessage = $("installMessage");
 
-function checkInstalled() {
-  const isInstalled =
-    window.matchMedia("(display-mode: standalone)").matches ||
+function isInstalled() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
     window.navigator.standalone === true;
+}
 
-  if (isInstalled) {
+function updateInstallButton() {
+  if (isInstalled()) {
     installButton.textContent = "✓ APLICATIVO INSTALADO";
-    installButton.classList.add("installed");
     installButton.disabled = true;
+    installMessage.textContent =
+      "Você já está usando o aplicativo instalado.";
   }
 }
 
 window.addEventListener("beforeinstallprompt", event => {
   event.preventDefault();
-
   deferredInstallPrompt = event;
 
-  installButton.hidden = false;
+  installButton.textContent = "📲 INSTALAR APLICATIVO";
+  installMessage.textContent = "Toque para instalar no seu Android.";
 });
 
 installButton.addEventListener("click", async () => {
+  if (isInstalled()) {
+    installMessage.textContent = "O aplicativo já está instalado.";
+    return;
+  }
+
   if (!deferredInstallPrompt) {
-    alert(
-      "Para instalar o aplicativo:\n\n" +
-      "1. Abra o menu do Chrome (⋮).\n" +
-      "2. Escolha 'Instalar aplicativo' ou 'Adicionar à tela inicial'.\n" +
-      "3. Confirme a instalação."
-    );
+    installMessage.textContent =
+      "O Chrome ainda não liberou a instalação. " +
+      "Verifique se o site está em HTTPS e se o manifesto e o Service Worker foram carregados. " +
+      "Você também pode usar Adicionar à tela inicial no menu do Chrome.";
 
     return;
   }
@@ -493,18 +469,17 @@ installButton.addEventListener("click", async () => {
   const result = await deferredInstallPrompt.userChoice;
 
   if (result.outcome === "accepted") {
-    installButton.textContent = "✓ INSTALAÇÃO SOLICITADA";
+    installMessage.textContent = "Instalação solicitada.";
+  } else {
+    installMessage.textContent = "Instalação cancelada.";
   }
 
   deferredInstallPrompt = null;
 });
 
 window.addEventListener("appinstalled", () => {
-  installButton.textContent = "✓ APLICATIVO INSTALADO";
-  installButton.classList.add("installed");
-  installButton.disabled = true;
-
-  deferredInstallPrompt = null;
+  updateInstallButton();
+  installMessage.textContent = "Aplicativo instalado com sucesso!";
 });
 
 $("startBtn").addEventListener("click", startWalk);
@@ -516,11 +491,9 @@ $("locateBtn").addEventListener("click", locateUser);
 initMap();
 renderHistory();
 restoreSession();
-checkInstalled();
+updateInstallButton();
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("./sw.js")
-    .catch(error => {
-      console.error("Erro no Service Worker:", error);
-    });
+    .catch(error => console.error("Service Worker:", error));
 }
