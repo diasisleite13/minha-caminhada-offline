@@ -2,8 +2,8 @@
 {
   "id": "./",
   "name": "Minha Caminhada Offline",
-  "short_name": "Caminhada",
-  "description": "Aplicativo para registrar caminhadas com GPS, distância e desempenho.",
+  "short_name": "Minha Caminhada",
+  "description": "Aplicativo de caminhada com GPS, distância, velocidade e histórico.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
@@ -11,7 +11,6 @@
   "orientation": "portrait",
   "background_color": "#f3f7f4",
   "theme_color": "#123d2c",
-  "prefer_related_applications": false,
   "icons": [
     {
       "src": "./icon.svg",
