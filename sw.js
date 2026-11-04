@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "minha-caminhada-v8";
+const CACHE_NAME = "minha-caminhada-v10";
 
 const FILES = [
   "./",
@@ -7,9 +7,7 @@ const FILES = [
   "./style.css",
   "./app.js",
   "./manifest.json",
-  "./icon.svg",
-  "./vendor/leaflet.js",
-  "./vendor/leaflet.css"
+  "./icon.svg"
 ];
 
 self.addEventListener("install", event => {
@@ -42,33 +40,78 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(request.url);
 
-  if (url.origin !== self.location.origin) return;
+  // Arquivos da biblioteca Leaflet:
+  // armazenar para permitir uso offline posterior.
+  if (
+    url.hostname === "unpkg.com" &&
+    url.pathname.includes("/leaflet@1.9.4/")
+  ) {
+    event.respondWith(
+      caches.match(request).then(async cached => {
+        if (cached) return cached;
 
-  event.respondWith(
-    caches.match(request).then(async cached => {
-      if (cached) return cached;
+        try {
+          const response = await fetch(request);
 
-      try {
-        const response = await fetch(request);
+          if (response.ok || response.type === "opaque") {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+          }
 
-        if (response.ok) {
-          const copy = response.clone();
+          return response;
 
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(request, copy);
+        } catch (error) {
+          return new Response(
+            "Biblioteca Leaflet indisponível offline.",
+            { status: 503 }
+          );
         }
+      })
+    );
 
-        return response;
+    return;
+  }
 
-      } catch (error) {
-        if (request.mode === "navigate") {
-          return await caches.match("./index.html");
+  // Não armazenar automaticamente todos os
+  // blocos de mapas, pois isso pode consumir
+  // muito espaço no aparelho.
+  if (
+    url.hostname.endsWith("openstreetmap.org")
+  ) {
+    return;
+  }
+
+  // Arquivos do próprio aplicativo.
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      caches.match(request).then(async cached => {
+        if (cached) return cached;
+
+        try {
+          const response = await fetch(request);
+
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+
+            await cache.put(
+              request,
+              response.clone()
+            );
+          }
+
+          return response;
+
+        } catch (error) {
+          if (request.mode === "navigate") {
+            return await caches.match("./index.html");
+          }
+
+          return new Response(
+            "Arquivo indisponível offline.",
+            { status: 503 }
+          );
         }
-
-        return new Response("Arquivo não disponível offline.", {
-          status: 503
-        });
-      }
-    })
-  );
+      })
+    );
+  }
 });
