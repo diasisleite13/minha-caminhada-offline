@@ -1,7 +1,7 @@
 
 const $ = id => document.getElementById(id);
 
-// Mantém os históricos das duas versões.
+// HISTÓRICO
 const STORAGE_KEY = "minha-caminhada-historico-v2";
 const LEGACY_KEY = "minha-caminhada-historico-v1";
 
@@ -23,20 +23,17 @@ let paused = false;
 
 let lastPoint = null;
 let movementAnchor = null;
-let movementSamples = [];
 
 let deferredInstallPrompt = null;
 
-/* CONFIGURAÇÕES GPS */
-
+// CONFIGURAÇÕES GPS
 const GPS_CONFIG = {
-  maxAccuracy: 20,
-  minDistance: 10,
-  minSpeed: 0.5,
-  maxSpeed: 2.2,
-  requiredSamples: 3,
-  minConfirmationTime: 5,
-  maxInterval: 20
+  maxAccuracy: 50,
+  minDistance: 4,
+  maxDistanceThreshold: 8,
+  minSpeed: 0.35,
+  maxSpeed: 3.2,
+  maxInterval: 30
 };
 
 /* HISTÓRICO */
@@ -113,6 +110,7 @@ function formatDistance(meters) {
     value: (meters / 1000)
       .toFixed(2)
       .replace(".", ","),
+
     unit: "km"
   };
 }
@@ -138,7 +136,7 @@ function getElapsed() {
     Math.floor((Date.now() - startedAt) / 1000);
 }
 
-/* ESTATÍSTICAS DA CAMINHADA ATUAL */
+/* ESTATÍSTICAS DA CAMINHADA */
 
 function updateStats() {
   const formatted = formatDistance(distanceMeters);
@@ -168,19 +166,17 @@ function updateStats() {
   }
 }
 
-/* NOVO PAINEL DE DESEMPENHO */
+/* PAINEL DE DESEMPENHO */
 
 function updatePerformance() {
   const history = loadHistory();
 
-  // Total de quilômetros.
   const totalDistance = history.reduce(
     (sum, item) =>
       sum + Math.max(0, Number(item.distance) || 0),
     0
   );
 
-  // Tempo total de caminhada.
   const totalTime = history.reduce(
     (sum, item) =>
       sum + Math.max(0, Number(item.duration) || 0),
@@ -189,12 +185,10 @@ function updatePerformance() {
 
   const totalKm = totalDistance / 1000;
 
-  // Velocidade média geral.
   const averageSpeed = totalTime > 0
     ? totalKm / (totalTime / 3600)
     : 0;
 
-  // Recorde de distância.
   const record = history.reduce(
     (best, item) => {
       const distance = Number(item.distance) || 0;
@@ -234,7 +228,7 @@ function updatePerformance() {
 function initMap() {
   if (!window.L) {
     $("mapNotice").textContent =
-      "Mapa indisponível. O GPS e o histórico continuam funcionando.";
+      "Mapa indisponível. GPS e histórico continuam funcionando.";
     return;
   }
 
@@ -288,8 +282,38 @@ function gpsError(error) {
 function resetGPSFilter() {
   lastPoint = null;
   movementAnchor = null;
-  movementSamples = [];
 }
+
+/*
+  ATUALIZAÇÃO VISUAL DO GPS
+
+  O marcador acompanha a localização recebida.
+  Mesmo quando não existe deslocamento suficiente
+  para somar quilômetros, ele continua atualizado.
+*/
+
+function updateGPSMarker(current) {
+  if (!map || !window.L) return;
+
+  const position = [
+    current.lat,
+    current.lng
+  ];
+
+  if (!marker) {
+    marker = L.marker(position).addTo(map);
+  } else {
+    marker.setLatLng(position);
+  }
+
+  if (!map.getBounds().contains(position)) {
+    map.panTo(position);
+  }
+}
+
+/*
+  INICIAR LEITURA GPS
+*/
 
 function startGPS() {
   if (!navigator.geolocation) {
@@ -312,7 +336,7 @@ function startGPS() {
     {
       enableHighAccuracy: true,
       maximumAge: 0,
-      timeout: 20000
+      timeout: 30000
     }
   );
 }
@@ -322,30 +346,22 @@ function stopGPS() {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
-
-  $("gpsStatus").textContent = "GPS pausado";
 }
 
 /*
-  FILTRO DE MOVIMENTO
+  RECEBER POSIÇÃO GPS
 
-  Exige precisão, deslocamento e leituras
-  consecutivas antes de somar distância.
+  1. Atualiza o marcador.
+  2. Verifica a precisão.
+  3. Confirma deslocamento.
+  4. Calcula a distância.
+  5. Atualiza o percurso.
 */
 
 function addPosition(position) {
   if (!running || paused) return;
 
   const accuracy = position.coords.accuracy;
-
-  if (
-    !Number.isFinite(accuracy) ||
-    accuracy > GPS_CONFIG.maxAccuracy
-  ) {
-    $("gpsStatus").textContent =
-      "Aguardando GPS preciso...";
-    return;
-  }
 
   const current = {
     lat: position.coords.latitude,
@@ -354,35 +370,39 @@ function addPosition(position) {
     timestamp: position.timestamp
   };
 
+  // Primeiro atualiza o marcador visual.
+  updateGPSMarker(current);
+
+  $("gpsStatus").textContent = "GPS conectado";
+
+  // Não soma posição sem precisão mínima.
+  if (
+    !Number.isFinite(accuracy) ||
+    accuracy > GPS_CONFIG.maxAccuracy
+  ) {
+    $("gpsStatus").textContent =
+      "GPS conectado - aguardando precisão";
+
+    return;
+  }
+
+  // Primeira posição serve como referência.
   if (!movementAnchor) {
     movementAnchor = current;
     lastPoint = current;
 
-    if (map) {
-      map.setView([
-        current.lat,
-        current.lng
-      ], 17);
-
-      if (marker) {
-        map.removeLayer(marker);
-      }
-
-      marker = L.marker([
-        current.lat,
-        current.lng
-      ]).addTo(map);
-    }
-
-    $("gpsStatus").textContent = "GPS conectado";
     return;
   }
 
   const elapsed =
     (current.timestamp - movementAnchor.timestamp) / 1000;
 
-  if (elapsed <= 0 || elapsed > GPS_CONFIG.maxInterval) {
-    resetGPSFilter();
+  // Evita leituras repetidas ou muito antigas.
+  if (elapsed <= 0) return;
+
+  if (elapsed > GPS_CONFIG.maxInterval) {
+    movementAnchor = current;
+    lastPoint = current;
     return;
   }
 
@@ -391,85 +411,47 @@ function addPosition(position) {
     current
   );
 
+  /*
+    O limite não cresce exageradamente com a
+    precisão informada pelo aparelho.
+  */
+
   const threshold = Math.max(
     GPS_CONFIG.minDistance,
-    (accuracy + movementAnchor.accuracy) * 1.2
+    Math.min(
+      GPS_CONFIG.maxDistanceThreshold,
+      (accuracy + movementAnchor.accuracy) * 0.2
+    )
   );
 
+  // Pequenos movimentos e oscilações não contam.
+  // Mantém a referência anterior para acumular
+  // o deslocamento real ao longo das leituras.
   if (delta < threshold) {
-    movementSamples = [];
-    lastPoint = current;
-
-    $("gpsStatus").textContent =
-      "Aguardando movimento...";
-
     return;
   }
 
   const speed = delta / elapsed;
 
+  // Rejeita saltos GPS e movimentos incompatíveis.
   if (
     speed < GPS_CONFIG.minSpeed ||
     speed > GPS_CONFIG.maxSpeed
   ) {
-    movementSamples = [];
-
-    $("gpsStatus").textContent =
-      "Verificando deslocamento...";
-
+    movementAnchor = current;
+    lastPoint = current;
     return;
   }
 
-  movementSamples.push(current);
+  // Movimento confirmado.
+  distanceMeters += delta;
 
-  if (
-    movementSamples.length <
-    GPS_CONFIG.requiredSamples
-  ) {
-    return;
-  }
+  points.push(current);
 
-  const confirmed =
-    movementSamples[movementSamples.length - 1];
+  movementAnchor = current;
+  lastPoint = current;
 
-  const totalDelta = haversine(
-    movementAnchor,
-    confirmed
-  );
-
-  const totalTime =
-    (confirmed.timestamp - movementAnchor.timestamp) / 1000;
-
-  const confirmedSpeed = totalDelta / totalTime;
-
-  if (
-    totalDelta < threshold ||
-    totalTime < GPS_CONFIG.minConfirmationTime ||
-    confirmedSpeed < GPS_CONFIG.minSpeed ||
-    confirmedSpeed > GPS_CONFIG.maxSpeed
-  ) {
-    movementSamples = [];
-    return;
-  }
-
-  // Deslocamento confirmado.
-  distanceMeters += totalDelta;
-
-  points.push(confirmed);
-
-  movementAnchor = confirmed;
-  lastPoint = confirmed;
-  movementSamples = [];
-
-  if (marker && map) {
-    marker.setLatLng([
-      confirmed.lat,
-      confirmed.lng
-    ]);
-  }
-
-  $("gpsStatus").textContent =
-    "GPS conectado";
+  $("gpsStatus").textContent = "GPS conectado";
 
   drawRoute();
   updateStats();
@@ -681,7 +663,7 @@ function renderHistory() {
   updatePerformance();
 }
 
-/* EXPORTAÇÃO */
+/* EXPORTAR */
 
 function exportData() {
   const blob = new Blob(
@@ -697,6 +679,7 @@ function exportData() {
   link.download = "minhas-caminhadas.json";
 
   document.body.appendChild(link);
+
   link.click();
   link.remove();
 
@@ -715,11 +698,18 @@ function locateUser() {
 
   navigator.geolocation.getCurrentPosition(
     position => {
+      const current = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+      };
+
       if (map) {
         map.setView([
-          position.coords.latitude,
-          position.coords.longitude
+          current.lat,
+          current.lng
         ], 17);
+
+        updateGPSMarker(current);
       }
     },
     gpsError,
