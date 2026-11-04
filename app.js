@@ -1,6 +1,9 @@
+
 const $ = id => document.getElementById(id);
 
+// Mantém os históricos das duas versões.
 const STORAGE_KEY = "minha-caminhada-historico-v2";
+const LEGACY_KEY = "minha-caminhada-historico-v1";
 
 let map = null;
 let route = null;
@@ -38,14 +41,36 @@ const GPS_CONFIG = {
 
 /* HISTÓRICO */
 
-function loadHistory() {
+function readStorage(key) {
   try {
-    return JSON.parse(
-      localStorage.getItem(STORAGE_KEY) || "[]"
+    const data = JSON.parse(
+      localStorage.getItem(key) || "[]"
     );
+
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
+}
+
+function loadHistory() {
+  const current = readStorage(STORAGE_KEY);
+  const legacy = readStorage(LEGACY_KEY);
+
+  const unique = new Map();
+
+  [...legacy, ...current].forEach(item => {
+    if (!item || typeof item !== "object") return;
+
+    const key = item.id ??
+      `${item.date}-${item.distance}-${item.duration}`;
+
+    unique.set(String(key), item);
+  });
+
+  return [...unique.values()].sort(
+    (a, b) => new Date(b.date) - new Date(a.date)
+  );
 }
 
 function saveHistory(history) {
@@ -113,7 +138,7 @@ function getElapsed() {
     Math.floor((Date.now() - startedAt) / 1000);
 }
 
-/* ESTATÍSTICAS */
+/* ESTATÍSTICAS DA CAMINHADA ATUAL */
 
 function updateStats() {
   const formatted = formatDistance(distanceMeters);
@@ -143,12 +168,73 @@ function updateStats() {
   }
 }
 
+/* NOVO PAINEL DE DESEMPENHO */
+
+function updatePerformance() {
+  const history = loadHistory();
+
+  // Total de quilômetros.
+  const totalDistance = history.reduce(
+    (sum, item) =>
+      sum + Math.max(0, Number(item.distance) || 0),
+    0
+  );
+
+  // Tempo total de caminhada.
+  const totalTime = history.reduce(
+    (sum, item) =>
+      sum + Math.max(0, Number(item.duration) || 0),
+    0
+  );
+
+  const totalKm = totalDistance / 1000;
+
+  // Velocidade média geral.
+  const averageSpeed = totalTime > 0
+    ? totalKm / (totalTime / 3600)
+    : 0;
+
+  // Recorde de distância.
+  const record = history.reduce(
+    (best, item) => {
+      const distance = Number(item.distance) || 0;
+
+      return distance > (Number(best?.distance) || 0)
+        ? item
+        : best;
+    },
+    null
+  );
+
+  const recordDistance = record
+    ? Math.max(0, Number(record.distance) || 0) / 1000
+    : 0;
+
+  $("performanceDistance").textContent =
+    totalKm.toFixed(2).replace(".", ",") + " km";
+
+  $("performanceTime").textContent =
+    formatTime(totalTime);
+
+  $("performanceSpeed").textContent =
+    averageSpeed.toFixed(1).replace(".", ",") + " km/h";
+
+  $("performanceRecord").textContent =
+    recordDistance.toFixed(2).replace(".", ",") + " km";
+
+  $("performanceRecordDate").textContent =
+    record
+      ? "Conquistado em " +
+        new Date(record.date).toLocaleDateString("pt-BR")
+      : "Nenhuma caminhada registrada";
+}
+
 /* MAPA */
 
 function initMap() {
   if (!window.L) {
     $("mapNotice").textContent =
-      "Mapa indisponível sem internet. O GPS continua funcionando.";
+      "Mapa indisponível. O GPS e o histórico continuam funcionando.";
     return;
   }
 
@@ -173,7 +259,10 @@ function drawRoute() {
   if (!map || !route || points.length === 0) return;
 
   route.setLatLngs(
-    points.map(p => [p.lat, p.lng])
+    points.map(point => [
+      point.lat,
+      point.lng
+    ])
   );
 
   if (points.length > 1) {
@@ -233,22 +322,15 @@ function stopGPS() {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
+
+  $("gpsStatus").textContent = "GPS pausado";
 }
 
 /*
-  FILTRO GPS
+  FILTRO DE MOVIMENTO
 
-  Não registra uma posição isolada.
-
-  Exige:
-  - Precisão adequada.
-  - Deslocamento mínimo.
-  - Velocidade compatível com caminhada.
-  - Três leituras consecutivas.
-  - Confirmação ao longo do tempo.
-
-  O objetivo é reduzir os falsos quilômetros
-  causados pela oscilação do GPS parado.
+  Exige precisão, deslocamento e leituras
+  consecutivas antes de somar distância.
 */
 
 function addPosition(position) {
@@ -277,10 +359,10 @@ function addPosition(position) {
     lastPoint = current;
 
     if (map) {
-      map.setView(
-        [current.lat, current.lng],
-        17
-      );
+      map.setView([
+        current.lat,
+        current.lng
+      ], 17);
 
       if (marker) {
         map.removeLayer(marker);
@@ -296,31 +378,26 @@ function addPosition(position) {
     return;
   }
 
+  const elapsed =
+    (current.timestamp - movementAnchor.timestamp) / 1000;
+
+  if (elapsed <= 0 || elapsed > GPS_CONFIG.maxInterval) {
+    resetGPSFilter();
+    return;
+  }
+
   const delta = haversine(
     movementAnchor,
     current
   );
-
-  const elapsed =
-    (current.timestamp - movementAnchor.timestamp) / 1000;
-
-  if (
-    elapsed < 1 ||
-    elapsed > GPS_CONFIG.maxInterval
-  ) {
-    resetGPSFilter();
-    return;
-  }
 
   const threshold = Math.max(
     GPS_CONFIG.minDistance,
     (accuracy + movementAnchor.accuracy) * 1.2
   );
 
-  // Ainda não existe movimento suficiente.
   if (delta < threshold) {
     movementSamples = [];
-
     lastPoint = current;
 
     $("gpsStatus").textContent =
@@ -375,7 +452,7 @@ function addPosition(position) {
     return;
   }
 
-  // Movimento confirmado.
+  // Deslocamento confirmado.
   distanceMeters += totalDelta;
 
   points.push(confirmed);
@@ -392,7 +469,7 @@ function addPosition(position) {
   }
 
   $("gpsStatus").textContent =
-    "GPS conectado - movimento registrado";
+    "GPS conectado";
 
   drawRoute();
   updateStats();
@@ -464,7 +541,8 @@ function pauseWalk() {
     stopGPS();
     resetGPSFilter();
 
-    $("gpsStatus").textContent = "Caminhada pausada";
+    $("gpsStatus").textContent =
+      "Caminhada pausada";
 
   } else {
     paused = false;
@@ -545,7 +623,8 @@ function renderHistory() {
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (sum, item) => sum + item.distance,
+    (sum, item) =>
+      sum + (Number(item.distance) || 0),
     0
   );
 
@@ -559,6 +638,8 @@ function renderHistory() {
   if (!history.length) {
     container.innerHTML =
       '<p class="empty">Suas caminhadas aparecerão aqui.</p>';
+
+    updatePerformance();
     return;
   }
 
@@ -578,9 +659,13 @@ function renderHistory() {
       new Date(item.date).toLocaleDateString("pt-BR");
 
     details.textContent =
-      "Tempo: " + formatTime(item.duration);
+      "Tempo: " + formatTime(
+        Number(item.duration) || 0
+      );
 
-    const formatted = formatDistance(item.distance);
+    const formatted = formatDistance(
+      Number(item.distance) || 0
+    );
 
     distance.className = "history-distance";
 
@@ -588,11 +673,12 @@ function renderHistory() {
       formatted.value + " " + formatted.unit;
 
     info.append(date, details);
-
     row.append(info, distance);
 
     container.append(row);
   });
+
+  updatePerformance();
 }
 
 /* EXPORTAÇÃO */
@@ -614,7 +700,9 @@ function exportData() {
   link.click();
   link.remove();
 
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 /* LOCALIZAÇÃO */
@@ -720,6 +808,7 @@ $("locateBtn").addEventListener("click", locateUser);
 initMap();
 renderHistory();
 updateStats();
+updatePerformance();
 updateInstallButton();
 
 /* SERVICE WORKER */
