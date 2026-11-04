@@ -1,3 +1,4 @@
+
 :root {
   --green: #176b45;
   --dark: #123d2c;
@@ -146,7 +147,8 @@ main {
 /* MAPA */
 
 .map-section,
-.history-section {
+.history-section,
+.performance-section {
   background: white;
   margin-top: 18px;
   padding: 16px;
@@ -224,6 +226,49 @@ button:disabled {
   font-size: 11px;
 }
 
+/* PAINEL DE DESEMPENHO */
+
+.performance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.performance-card {
+  background: #f3f7f4;
+  border-radius: 14px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.performance-icon {
+  font-size: 25px;
+}
+
+.performance-card small {
+  color: #75867c;
+  font-size: 12px;
+}
+
+.performance-card strong {
+  color: #123d2c;
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+
+.record-card {
+  background: #eaf4ed;
+  grid-column: 1 / -1;
+}
+
+.record-date {
+  font-size: 11px;
+  color: #75867c;
+}
+
 /* HISTÓRICO */
 
 .history-summary {
@@ -284,6 +329,8 @@ button:disabled {
   padding: 15px;
 }
 
+/* RODAPÉ */
+
 footer {
   text-align: center;
   color: var(--muted);
@@ -309,5 +356,13 @@ footer {
   .status {
     font-size: 10px;
     padding: 6px 8px;
+  }
+
+  .performance-card {
+    padding: 12px 9px;
+  }
+
+  .performance-card strong {
+    font-size: 16px;
   }
 }
