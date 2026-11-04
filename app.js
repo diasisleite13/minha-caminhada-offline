@@ -4,31 +4,70 @@ const LEGACY_KEY = "minha-caminhada-historico-v1";
 const ACTIVE_KEY = "minha-caminhada-sessao-v1";
 const DB_NAME = "minha-caminhada-dados-v2";
 const DB_VERSION = 1;
-const GPS_CONFIG = { maxAccuracy: 50, minDistance: 3, maxDistanceThreshold: 8, maxSpeed: 8, maxInterval: 120 };
 
-let map = null, route = null, marker = null, onlineLayer = null, offlineLayer = null;
-let watchId = null, timer = null, points = [], distanceMeters = 0;
-let startedAt = null, elapsedBeforePause = 0, running = false, paused = false;
-let movementAnchor = null, deferredInstallPrompt = null, dbPromise = null;
+const GPS_CONFIG = {
+  maxAccuracy: 25,
+  minDistance: 6,
+  maxDistanceThreshold: 10,
+  minSpeed: 0.45,
+  maxSpeed: 3.2,
+  maxInterval: 120,
+  confirmationProgress: 1.5,
+  minDirectionCosine: 0.5
+};
+
+let map = null;
+let route = null;
+let marker = null;
+let onlineLayer = null;
+let offlineLayer = null;
+
+let watchId = null;
+let timer = null;
+let points = [];
+let distanceMeters = 0;
+
+let startedAt = null;
+let elapsedBeforePause = 0;
+let running = false;
+let paused = false;
+
+let movementAnchor = null;
+let pendingMovement = null;
+let deferredInstallPrompt = null;
+let dbPromise = null;
+
 let sessionSaveQueue = Promise.resolve();
+
+/* BANCO DE DADOS */
 
 function openDB() {
   if (dbPromise) return dbPromise;
+
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains("data")) db.createObjectStore("data");
+
+      if (!db.objectStoreNames.contains("data")) {
+        db.createObjectStore("data");
+      }
     };
+
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+
   return dbPromise;
 }
 
 function dbGet(key) {
   return openDB().then(db => new Promise((resolve, reject) => {
-    const req = db.transaction("data", "readonly").objectStore("data").get(key);
+    const req = db.transaction("data", "readonly")
+      .objectStore("data")
+      .get(key);
+
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   }));
@@ -37,7 +76,9 @@ function dbGet(key) {
 function dbSet(key, value) {
   return openDB().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction("data", "readwrite");
+
     tx.objectStore("data").put(value, key);
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   }));
@@ -46,11 +87,15 @@ function dbSet(key, value) {
 function dbDelete(key) {
   return openDB().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction("data", "readwrite");
+
     tx.objectStore("data").delete(key);
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   }));
 }
+
+/* HISTÓRICO */
 
 function readStorage(key) {
   try {
@@ -68,11 +113,16 @@ function loadHistory() {
 
   [...legacy, ...current].forEach(item => {
     if (!item || typeof item !== "object") return;
-    const key = item.id ?? `${item.date}-${item.distance}-${item.duration}`;
+
+    const key = item.id ??
+      `${item.date}-${item.distance}-${item.duration}`;
+
     unique.set(String(key), item);
   });
 
-  return [...unique.values()].sort((a, b) => new Date(b.date) - new Date(a.date));
+  return [...unique.values()].sort(
+    (a, b) => new Date(b.date) - new Date(a.date)
+  );
 }
 
 function saveHistory(history) {
@@ -84,13 +134,19 @@ function saveHistory(history) {
   }
 }
 
+/* CÁLCULOS */
+
 function haversine(a, b) {
   const R = 6371000;
   const rad = v => v * Math.PI / 180;
+
   const dLat = rad(b.lat - a.lat);
   const dLon = rad(b.lng - a.lng);
-  const value = Math.sin(dLat / 2) ** 2 +
-    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) *
+
+  const value =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) *
+    Math.cos(rad(b.lat)) *
     Math.sin(dLon / 2) ** 2;
 
   return 2 * R * Math.asin(Math.sqrt(value));
@@ -99,21 +155,29 @@ function haversine(a, b) {
 function formatDistance(meters) {
   return meters < 1000
     ? { value: Math.round(meters), unit: "m" }
-    : { value: (meters / 1000).toFixed(2).replace(".", ","), unit: "km" };
+    : {
+        value: (meters / 1000).toFixed(2).replace(".", ","),
+        unit: "km"
+      };
 }
 
 function formatTime(seconds) {
   seconds = Math.max(0, Math.floor(seconds));
+
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
 
-  return [h, m, s].map(n => String(n).padStart(2, "0")).join(":");
+  return [h, m, s]
+    .map(n => String(n).padStart(2, "0"))
+    .join(":");
 }
 
 function getElapsed() {
   if (!startedAt || paused) return elapsedBeforePause;
-  return elapsedBeforePause + Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+
+  return elapsedBeforePause +
+    Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
 }
 
 function updateStats() {
@@ -125,12 +189,18 @@ function updateStats() {
   $("distanceUnit").textContent = formatted.unit;
   $("time").textContent = formatTime(seconds);
 
-  const speed = seconds > 0 ? km / (seconds / 3600) : 0;
-  $("speed").textContent = speed.toFixed(1).replace(".", ",") + " km/h";
+  const speed = seconds > 0
+    ? km / (seconds / 3600)
+    : 0;
+
+  $("speed").textContent =
+    speed.toFixed(1).replace(".", ",") + " km/h";
 
   if (distanceMeters >= 10 && km > 0) {
     const pace = Math.floor(seconds / km);
-    $("pace").textContent = `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /km`;
+
+    $("pace").textContent =
+      `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} /km`;
   } else {
     $("pace").textContent = "--:-- /km";
   }
@@ -140,31 +210,48 @@ function updatePerformance() {
   const history = loadHistory();
 
   const totalDistance = history.reduce(
-    (s, i) => s + Math.max(0, Number(i.distance) || 0), 0
+    (s, i) => s + Math.max(0, Number(i.distance) || 0),
+    0
   );
 
   const totalTime = history.reduce(
-    (s, i) => s + Math.max(0, Number(i.duration) || 0), 0
+    (s, i) => s + Math.max(0, Number(i.duration) || 0),
+    0
   );
 
   const totalKm = totalDistance / 1000;
-  const averageSpeed = totalTime > 0 ? totalKm / (totalTime / 3600) : 0;
+
+  const averageSpeed = totalTime > 0
+    ? totalKm / (totalTime / 3600)
+    : 0;
 
   const record = history.reduce(
-    (best, item) => (Number(item.distance) || 0) > (Number(best?.distance) || 0) ? item : best,
+    (best, item) =>
+      (Number(item.distance) || 0) >
+      (Number(best?.distance) || 0)
+        ? item
+        : best,
     null
   );
 
-  $("performanceDistance").textContent = totalKm.toFixed(2).replace(".", ",") + " km";
+  $("performanceDistance").textContent =
+    totalKm.toFixed(2).replace(".", ",") + " km";
+
   $("performanceTime").textContent = formatTime(totalTime);
-  $("performanceSpeed").textContent = averageSpeed.toFixed(1).replace(".", ",") + " km/h";
+
+  $("performanceSpeed").textContent =
+    averageSpeed.toFixed(1).replace(".", ",") + " km/h";
+
   $("performanceRecord").textContent =
-    (record ? Number(record.distance) / 1000 : 0).toFixed(2).replace(".", ",") + " km";
+    (record ? Number(record.distance) / 1000 : 0)
+      .toFixed(2).replace(".", ",") + " km";
 
   $("performanceRecordDate").textContent = record
     ? "Conquistado em " + new Date(record.date).toLocaleDateString("pt-BR")
     : "Nenhuma caminhada registrada";
 }
+
+/* MAPA */
 
 function setMapNotice(message) {
   $("mapNotice").textContent = message;
@@ -191,18 +278,21 @@ function initMap() {
   route = L.polyline([], {
     color: "#168653",
     weight: 5,
-    opacity: .9,
+    opacity: 0.9,
     lineJoin: "round"
   }).addTo(map);
 
   setTimeout(() => map.invalidateSize(), 300);
+
   loadOfflineMap();
 }
 
 function drawRoute() {
   if (!map || !route || !points.length) return;
-  route.setLatLngs(points.map(p => [p.lat, p.lng]));
-  // Não reajusta o zoom a cada ponto: evita tremedeira e consumo desnecessário.
+
+  route.setLatLngs(
+    points.map(p => [p.lat, p.lng])
+  );
 }
 
 function updateGPSMarker(current) {
@@ -221,6 +311,8 @@ function updateGPSMarker(current) {
   }
 }
 
+/* GPS */
+
 function gpsError(error) {
   const messages = {
     1: "Permissão de localização negada. Autorize o GPS nas configurações do navegador.",
@@ -228,11 +320,13 @@ function gpsError(error) {
     3: "Tempo esgotado buscando GPS. Continuando a tentar."
   };
 
-  $("gpsStatus").textContent = messages[error.code] || "Erro no GPS";
+  $("gpsStatus").textContent =
+    messages[error.code] || "Erro no GPS";
 }
 
 function resetGPSFilter() {
   movementAnchor = null;
+  pendingMovement = null;
 }
 
 function startGPS() {
@@ -247,6 +341,7 @@ function startGPS() {
   }
 
   stopGPS();
+
   $("gpsStatus").textContent = "Buscando GPS...";
 
   watchId = navigator.geolocation.watchPosition(
@@ -267,6 +362,8 @@ function stopGPS() {
   }
 }
 
+/* FILTRO DE MOVIMENTO PARA EVITAR DISTÂNCIA FALSA */
+
 function addPosition(position) {
   if (!running || paused) return;
 
@@ -275,7 +372,7 @@ function addPosition(position) {
   const current = {
     lat: position.coords.latitude,
     lng: position.coords.longitude,
-    accuracy,
+    accuracy: accuracy,
     timestamp: position.timestamp || Date.now()
   };
 
@@ -291,7 +388,7 @@ function addPosition(position) {
   updateGPSMarker(current);
 
   if (accuracy > GPS_CONFIG.maxAccuracy) {
-    $("gpsStatus").textContent = "GPS conectado - aguardando precisão";
+    $("gpsStatus").textContent = "GPS aguardando precisão";
     return;
   }
 
@@ -305,42 +402,110 @@ function addPosition(position) {
     return;
   }
 
-  const elapsed = (current.timestamp - movementAnchor.timestamp) / 1000;
+  const elapsed =
+    (current.timestamp - movementAnchor.timestamp) / 1000;
 
   if (elapsed <= 0) return;
 
   if (elapsed > GPS_CONFIG.maxInterval) {
     movementAnchor = current;
+    pendingMovement = null;
     return;
   }
 
-  const delta = haversine(movementAnchor, current);
+  const totalDistance = haversine(movementAnchor, current);
 
   const threshold = Math.max(
     GPS_CONFIG.minDistance,
     Math.min(
       GPS_CONFIG.maxDistanceThreshold,
-      (accuracy + movementAnchor.accuracy) * 0.15
+      (accuracy + movementAnchor.accuracy) * 0.25
     )
   );
 
-  if (delta < threshold) return;
-
-  const speed = delta / elapsed;
-
-  if (speed > GPS_CONFIG.maxSpeed) {
-    movementAnchor = current;
+  if (totalDistance < threshold) {
+    pendingMovement = null;
     return;
   }
 
-  distanceMeters += delta;
+  const totalSpeed = totalDistance / elapsed;
+
+  if (totalSpeed > GPS_CONFIG.maxSpeed) {
+    pendingMovement = null;
+    return;
+  }
+
+  if (!pendingMovement) {
+    pendingMovement = current;
+    return;
+  }
+
+  const candidate = pendingMovement;
+
+  const candidateDistance =
+    haversine(movementAnchor, candidate);
+
+  const stepDistance =
+    haversine(candidate, current);
+
+  const candidateElapsed = Math.max(
+    1,
+    (current.timestamp - candidate.timestamp) / 1000
+  );
+
+  const confirmationSpeed =
+    stepDistance / candidateElapsed;
+
+  const progress =
+    totalDistance - candidateDistance;
+
+  const anchorLat =
+    movementAnchor.lat * Math.PI / 180;
+
+  const x1 =
+    (candidate.lng - movementAnchor.lng) *
+    Math.cos(anchorLat);
+
+  const y1 =
+    candidate.lat - movementAnchor.lat;
+
+  const x2 =
+    (current.lng - candidate.lng) *
+    Math.cos(anchorLat);
+
+  const y2 =
+    current.lat - candidate.lat;
+
+  const lengths =
+    Math.hypot(x1, y1) * Math.hypot(x2, y2);
+
+  const directionCosine = lengths > 0
+    ? (x1 * x2 + y1 * y2) / lengths
+    : -1;
+
+  if (
+    progress < GPS_CONFIG.confirmationProgress ||
+    confirmationSpeed < GPS_CONFIG.minSpeed ||
+    confirmationSpeed > GPS_CONFIG.maxSpeed ||
+    directionCosine < GPS_CONFIG.minDirectionCosine
+  ) {
+    pendingMovement = current;
+    return;
+  }
+
+  distanceMeters += totalDistance;
+
   movementAnchor = current;
+  pendingMovement = null;
+
   points.push(current);
 
   drawRoute();
   updateStats();
   saveActiveSession();
 }
+
+/* SALVAR SESSÃO */
 
 function saveActiveSession() {
   if (!running) return Promise.resolve();
@@ -354,7 +519,6 @@ function saveActiveSession() {
     updatedAt: Date.now()
   };
 
-  // Serializa as gravações para evitar que uma gravação antiga termine depois da mais recente.
   sessionSaveQueue = sessionSaveQueue
     .then(() => dbSet("active-session", session))
     .catch(error => {
@@ -364,11 +528,15 @@ function saveActiveSession() {
   return sessionSaveQueue;
 }
 
+/* CONTROLES */
+
 function setControls() {
   $("startBtn").disabled = running;
   $("pauseBtn").disabled = !running;
   $("finishBtn").disabled = !running;
-  $("pauseBtn").textContent = paused ? "▶ Continuar" : "Ⅱ Pausar";
+
+  $("pauseBtn").textContent =
+    paused ? "▶ Continuar" : "Ⅱ Pausar";
 }
 
 function startWalk() {
@@ -388,13 +556,20 @@ function startWalk() {
   distanceMeters = 0;
   elapsedBeforePause = 0;
   startedAt = Date.now();
+
   running = true;
   paused = false;
+
   resetGPSFilter();
 
   if (route) route.setLatLngs([]);
-  if (marker && map) map.removeLayer(marker);
+
+  if (marker && map) {
+    map.removeLayer(marker);
+  }
+
   marker = null;
+
   if (map) map.invalidateSize();
 
   startGPS();
@@ -406,7 +581,9 @@ function startWalk() {
   updateStats();
   saveActiveSession();
 
-  setMapNotice("Caminhada em andamento. O GPS pode ser afetado pelas regras de economia de bateria do Android.");
+  setMapNotice(
+    "Caminhada em andamento. O GPS pode ser afetado pelas regras de economia de bateria do Android."
+  );
 }
 
 function pauseWalk() {
@@ -416,12 +593,15 @@ function pauseWalk() {
     elapsedBeforePause = getElapsed();
     startedAt = null;
     paused = true;
+
     stopGPS();
     resetGPSFilter();
+
     $("gpsStatus").textContent = "Caminhada pausada";
   } else {
     paused = false;
     startedAt = Date.now();
+
     resetGPSFilter();
     startGPS();
   }
@@ -446,6 +626,7 @@ async function finishWalk() {
 
   running = false;
   paused = false;
+
   stopGPS();
   clearInterval(timer);
   timer = null;
@@ -455,30 +636,42 @@ async function finishWalk() {
   try {
     if (record.distance >= 5) {
       const history = loadHistory();
+
       history.unshift(record);
       saveHistory(history);
+
       saved = true;
     }
 
     await sessionSaveQueue;
     await dbDelete("active-session");
+
     localStorage.removeItem(ACTIVE_KEY);
   } catch (error) {
     console.error("Não foi possível concluir o salvamento:", error);
-    alert("A caminhada foi encerrada, mas não foi possível salvar o histórico. Verifique o espaço disponível no aparelho e exporte os dados existentes.");
+
+    alert(
+      "A caminhada foi encerrada, mas não foi possível salvar o histórico. Verifique o espaço disponível no aparelho e exporte os dados existentes."
+    );
   }
 
   points = [];
   distanceMeters = 0;
   elapsedBeforePause = 0;
   startedAt = null;
+
   resetGPSFilter();
 
   if (route) route.setLatLngs([]);
-  if (marker && map) map.removeLayer(marker);
+
+  if (marker && map) {
+    map.removeLayer(marker);
+  }
+
   marker = null;
 
   $("gpsStatus").textContent = "GPS desligado";
+
   setControls();
   updateStats();
   renderHistory();
@@ -490,22 +683,29 @@ async function finishWalk() {
   }
 }
 
+/* EXIBIR HISTÓRICO */
+
 function renderHistory() {
   const history = loadHistory();
 
   $("totalWalks").textContent = history.length;
 
   const total = history.reduce(
-    (s, i) => s + (Number(i.distance) || 0), 0
+    (s, i) => s + (Number(i.distance) || 0),
+    0
   );
 
   const formattedTotal = formatDistance(total);
-  $("totalKm").textContent = formattedTotal.value + " " + formattedTotal.unit;
+
+  $("totalKm").textContent =
+    formattedTotal.value + " " + formattedTotal.unit;
 
   const container = $("history");
 
   if (!history.length) {
-    container.innerHTML = '<p class="empty">Suas caminhadas aparecerão aqui.</p>';
+    container.innerHTML =
+      '<p class="empty">Suas caminhadas aparecerão aqui.</p>';
+
     updatePerformance();
     return;
   }
@@ -521,12 +721,19 @@ function renderHistory() {
     const details = document.createElement("small");
     const distance = document.createElement("span");
 
-    date.textContent = new Date(item.date).toLocaleDateString("pt-BR");
-    details.textContent = "Tempo: " + formatTime(Number(item.duration) || 0);
+    date.textContent =
+      new Date(item.date).toLocaleDateString("pt-BR");
 
-    const formatted = formatDistance(Number(item.distance) || 0);
+    details.textContent =
+      "Tempo: " + formatTime(Number(item.duration) || 0);
+
+    const formatted = formatDistance(
+      Number(item.distance) || 0
+    );
+
     distance.className = "history-distance";
-    distance.textContent = formatted.value + " " + formatted.unit;
+    distance.textContent =
+      formatted.value + " " + formatted.unit;
 
     info.append(date, details);
     row.append(info, distance);
@@ -536,8 +743,11 @@ function renderHistory() {
   updatePerformance();
 }
 
+/* EXCLUIR TODOS OS REGISTROS */
+
 async function clearAllRecords() {
-  const message = "Deseja excluir DEFINITIVAMENTE todas as caminhadas salvas e qualquer sessão não finalizada? O mapa offline instalado será mantido.";
+  const message =
+    "Deseja excluir DEFINITIVAMENTE todas as caminhadas salvas e qualquer sessão não finalizada? O mapa offline instalado será mantido.";
 
   if (!confirm(message)) return;
 
@@ -545,9 +755,9 @@ async function clearAllRecords() {
   button.disabled = true;
 
   try {
-    // Interrompe também uma caminhada em andamento para que ela não seja gravada novamente.
     running = false;
     paused = false;
+
     stopGPS();
     clearInterval(timer);
     timer = null;
@@ -563,10 +773,15 @@ async function clearAllRecords() {
     distanceMeters = 0;
     elapsedBeforePause = 0;
     startedAt = null;
+
     resetGPSFilter();
 
     if (route) route.setLatLngs([]);
-    if (marker && map) map.removeLayer(marker);
+
+    if (marker && map) {
+      map.removeLayer(marker);
+    }
+
     marker = null;
 
     $("gpsStatus").textContent = "GPS desligado";
@@ -575,7 +790,9 @@ async function clearAllRecords() {
     updateStats();
     renderHistory();
 
-    alert("Todos os registros de caminhada foram excluídos. O mapa offline foi preservado.");
+    alert(
+      "Todos os registros de caminhada foram excluídos. O mapa offline foi preservado."
+    );
   } catch (error) {
     console.error("Erro ao excluir registros:", error);
     alert("Não foi possível excluir todos os registros. Tente novamente.");
@@ -583,6 +800,8 @@ async function clearAllRecords() {
     button.disabled = false;
   }
 }
+
+/* EXPORTAR DADOS */
 
 function exportData() {
   const payload = {
@@ -608,6 +827,8 @@ function exportData() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* LOCALIZAR POSIÇÃO */
+
 function locateUser() {
   if (!navigator.geolocation) {
     alert("GPS indisponível.");
@@ -622,7 +843,11 @@ function locateUser() {
       };
 
       if (map) {
-        map.setView([current.lat, current.lng], 17);
+        map.setView(
+          [current.lat, current.lng],
+          17
+        );
+
         updateGPSMarker(current);
       }
     },
@@ -635,18 +860,27 @@ function locateUser() {
   );
 }
 
+/* RECUPERAR CAMINHADA */
+
 async function restoreActiveSession() {
   try {
     let session = await dbGet("active-session");
 
     if (!session) {
-      const legacy = JSON.parse(localStorage.getItem(ACTIVE_KEY) || "null");
+      const legacy = JSON.parse(
+        localStorage.getItem(ACTIVE_KEY) || "null"
+      );
+
       if (legacy) session = legacy;
     }
 
-    if (!session || !Array.isArray(session.points)) return;
+    if (!session || !Array.isArray(session.points)) {
+      return;
+    }
 
-    const recover = confirm("Existe uma caminhada não finalizada. Deseja recuperar?");
+    const recover = confirm(
+      "Existe uma caminhada não finalizada. Deseja recuperar?"
+    );
 
     if (!recover) {
       await dbDelete("active-session");
@@ -656,34 +890,43 @@ async function restoreActiveSession() {
 
     points = session.points;
     distanceMeters = Number(session.distanceMeters) || 0;
-    elapsedBeforePause = Number(session.elapsedBeforePause) || 0;
+    elapsedBeforePause =
+      Number(session.elapsedBeforePause) || 0;
 
-    // Corrige o tempo perdido quando o aplicativo foi fechado ou suspenso durante a caminhada.
     if (!session.paused && session.startedAt) {
       elapsedBeforePause += Math.max(
         0,
-        Math.floor((Date.now() - Number(session.startedAt)) / 1000)
+        Math.floor(
+          (Date.now() - Number(session.startedAt)) / 1000
+        )
       );
     }
 
     startedAt = null;
     paused = true;
     running = true;
+
     resetGPSFilter();
 
     if (route) {
-      route.setLatLngs(points.map(p => [p.lat, p.lng]));
+      route.setLatLngs(
+        points.map(p => [p.lat, p.lng])
+      );
     }
 
     if (points.length && map) {
       const last = points[points.length - 1];
+
       map.setView([last.lat, last.lng], 17);
       updateGPSMarker(last);
     }
 
     setControls();
     updateStats();
-    $("gpsStatus").textContent = "Caminhada recuperada - pausada";
+
+    $("gpsStatus").textContent =
+      "Caminhada recuperada - pausada";
+
     timer = setInterval(updateStats, 1000);
 
     await saveActiveSession();
@@ -692,7 +935,7 @@ async function restoreActiveSession() {
   }
 }
 
-/* MAPA REGIONAL PMTILES: o arquivo é guardado no IndexedDB e servido pelo Service Worker com suporte a HTTP Range. */
+/* MAPA REGIONAL PMTILES */
 
 async function installMapBlob(blob, name) {
   if (!blob || !blob.size) {
@@ -700,13 +943,17 @@ async function installMapBlob(blob, name) {
   }
 
   if (blob.size > 1500 * 1024 * 1024) {
-    throw new Error("O arquivo ultrapassa o limite de 1,5 GB definido para este aparelho.");
+    throw new Error(
+      "O arquivo ultrapassa o limite de 1,5 GB definido para este aparelho."
+    );
   }
 
   const signature = await blob.slice(0, 7).text();
 
   if (signature !== "PMTiles") {
-    throw new Error("O arquivo não parece ser um pacote PMTiles válido.");
+    throw new Error(
+      "O arquivo não parece ser um pacote PMTiles válido."
+    );
   }
 
   await dbSet("offline-map", {
@@ -721,7 +968,9 @@ async function installMapBlob(blob, name) {
 }
 
 async function waitForServiceWorkerControl() {
-  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    return;
+  }
 
   try {
     await navigator.serviceWorker.ready;
@@ -730,12 +979,19 @@ async function waitForServiceWorkerControl() {
 
     await Promise.race([
       new Promise(resolve =>
-        navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true })
+        navigator.serviceWorker.addEventListener(
+          "controllerchange",
+          resolve,
+          { once: true }
+        )
       ),
       new Promise(resolve => setTimeout(resolve, 4000))
     ]);
   } catch (error) {
-    console.warn("Service Worker ainda não controla esta página:", error);
+    console.warn(
+      "Service Worker ainda não controla esta página:",
+      error
+    );
   }
 }
 
@@ -748,7 +1004,9 @@ async function activateOfflineMap() {
   }
 
   if (!window.protomapsL || !window.pmtiles) {
-    $("offlineMapStatus").textContent = "Mapa salvo, mas as bibliotecas PMTiles ainda não foram carregadas. Conecte-se uma vez e reabra o aplicativo.";
+    $("offlineMapStatus").textContent =
+      "Mapa salvo, mas as bibliotecas PMTiles ainda não foram carregadas. Conecte-se uma vez e reabra o aplicativo.";
+
     return false;
   }
 
@@ -773,12 +1031,17 @@ async function activateOfflineMap() {
     $("offlineMapStatus").textContent =
       `Mapa regional instalado: ${data.name} (${(data.size / 1024 / 1024).toFixed(1)} MB). Ele será usado sem internet.`;
 
-    setMapNotice("Mapa regional offline ativo. Créditos dos dados: © OpenStreetMap contributors, conforme a licença do pacote.");
+    setMapNotice(
+      "Mapa regional offline ativo. Créditos dos dados: © OpenStreetMap contributors, conforme a licença do pacote."
+    );
 
     return true;
   } catch (error) {
     console.error(error);
-    $("offlineMapStatus").textContent = "O arquivo foi guardado, mas não abriu. Confirme se é um PMTiles vetorial compatível com Protomaps.";
+
+    $("offlineMapStatus").textContent =
+      "O arquivo foi guardado, mas não abriu. Confirme se é um PMTiles vetorial compatível com Protomaps.";
+
     return false;
   }
 }
@@ -794,7 +1057,9 @@ async function loadOfflineMap() {
     }
   } catch (error) {
     console.error(error);
-    $("offlineMapStatus").textContent = "Não foi possível consultar o armazenamento de mapas.";
+
+    $("offlineMapStatus").textContent =
+      "Não foi possível consultar o armazenamento de mapas.";
   }
 }
 
@@ -806,13 +1071,16 @@ async function updateOfflineMapStatus() {
       ? `Mapa instalado: ${data.name} (${(data.size / 1024 / 1024).toFixed(1)} MB).`
       : "Nenhum mapa regional instalado.";
   } catch {
-    $("offlineMapStatus").textContent = "Armazenamento offline indisponível neste navegador.";
+    $("offlineMapStatus").textContent =
+      "Armazenamento offline indisponível neste navegador.";
   }
 }
 
 function setMapProgress(value) {
   $("mapProgress").hidden = false;
-  $("mapProgressFill").style.width = Math.max(0, Math.min(100, value)) + "%";
+
+  $("mapProgressFill").style.width =
+    Math.max(0, Math.min(100, value)) + "%";
 }
 
 async function downloadMapFromUrl() {
@@ -829,15 +1097,21 @@ async function downloadMapFromUrl() {
   }
 
   const button = $("downloadMapBtn");
+
   button.disabled = true;
-  $("offlineMapStatus").textContent = "Baixando arquivo do fornecedor...";
+
+  $("offlineMapStatus").textContent =
+    "Baixando arquivo do fornecedor...";
+
   setMapProgress(5);
 
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      throw new Error("O servidor respondeu HTTP " + response.status + ".");
+      throw new Error(
+        "O servidor respondeu HTTP " + response.status + "."
+      );
     }
 
     const blob = await response.blob();
@@ -848,9 +1122,9 @@ async function downloadMapFromUrl() {
 
     setMapProgress(75);
 
-    const name = decodeURIComponent(
-      url.split("/").pop().split("?")[0]
-    ) || "mapa-regional.pmtiles";
+    const name =
+      decodeURIComponent(url.split("/").pop().split("?")[0]) ||
+      "mapa-regional.pmtiles";
 
     await installMapBlob(blob, name);
 
@@ -858,12 +1132,14 @@ async function downloadMapFromUrl() {
 
     $("offlineMapStatus").textContent =
       `Download concluído: ${name} (${(blob.size / 1024 / 1024).toFixed(1)} MB).`;
-
   } catch (error) {
     $("offlineMapStatus").textContent =
-      "Falha no download: " + error.message + ". O servidor precisa permitir acesso CORS.";
+      "Falha no download: " +
+      error.message +
+      ". O servidor precisa permitir acesso CORS.";
   } finally {
     button.disabled = false;
+
     setTimeout(() => {
       $("mapProgress").hidden = true;
     }, 1500);
@@ -874,9 +1150,12 @@ async function importMapFile(file) {
   if (!file) return;
 
   const button = $("importMapBtn");
+
   button.disabled = true;
 
-  $("offlineMapStatus").textContent = "Importando mapa para o armazenamento do aparelho...";
+  $("offlineMapStatus").textContent =
+    "Importando mapa para o armazenamento do aparelho...";
+
   setMapProgress(30);
 
   try {
@@ -886,9 +1165,9 @@ async function importMapFile(file) {
 
     $("offlineMapStatus").textContent =
       `Mapa importado: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB).`;
-
   } catch (error) {
-    $("offlineMapStatus").textContent = "Não foi possível importar: " + error.message;
+    $("offlineMapStatus").textContent =
+      "Não foi possível importar: " + error.message;
   } finally {
     button.disabled = false;
 
@@ -899,7 +1178,9 @@ async function importMapFile(file) {
 }
 
 async function removeOfflineMap() {
-  if (!confirm("Deseja remover o mapa regional salvo neste aparelho?")) return;
+  if (!confirm("Deseja remover o mapa regional salvo neste aparelho?")) {
+    return;
+  }
 
   await dbDelete("offline-map");
 
@@ -914,8 +1195,13 @@ async function removeOfflineMap() {
   }
 
   updateOfflineMapStatus();
-  setMapNotice("Mapa regional removido. O mapa de ruas online precisa de internet.");
+
+  setMapNotice(
+    "Mapa regional removido. O mapa de ruas online precisa de internet."
+  );
 }
+
+/* INSTALAÇÃO DO APLICATIVO */
 
 const installButton = $("installBtn");
 const installMessage = $("installMessage");
@@ -928,20 +1214,28 @@ function updateInstallButton() {
   if (installed) {
     installButton.textContent = "✓ APLICATIVO INSTALADO";
     installButton.disabled = true;
-    installMessage.textContent = "Você já está usando o aplicativo instalado.";
+
+    installMessage.textContent =
+      "Você já está usando o aplicativo instalado.";
   }
 }
 
 window.addEventListener("beforeinstallprompt", event => {
   event.preventDefault();
+
   deferredInstallPrompt = event;
+
   installButton.disabled = false;
-  installMessage.textContent = "Aplicativo pronto para instalação.";
+
+  installMessage.textContent =
+    "Aplicativo pronto para instalação.";
 });
 
 installButton.addEventListener("click", async () => {
   if (!deferredInstallPrompt) {
-    installMessage.textContent = "Abra o menu do Chrome e escolha Adicionar à tela inicial.";
+    installMessage.textContent =
+      "Abra o menu do Chrome e escolha Adicionar à tela inicial.";
+
     return;
   }
 
@@ -959,21 +1253,49 @@ installButton.addEventListener("click", async () => {
 
 window.addEventListener("appinstalled", () => {
   updateInstallButton();
-  installMessage.textContent = "Aplicativo instalado com sucesso!";
+
+  installMessage.textContent =
+    "Aplicativo instalado com sucesso!";
 });
+
+/* BOTÕES E EVENTOS */
 
 $("startBtn").addEventListener("click", startWalk);
 $("pauseBtn").addEventListener("click", pauseWalk);
 $("finishBtn").addEventListener("click", finishWalk);
 $("exportBtn").addEventListener("click", exportData);
 $("locateBtn").addEventListener("click", locateUser);
-$("clearRecordsBtn").addEventListener("click", clearAllRecords);
 
-$("downloadMapBtn").addEventListener("click", downloadMapFromUrl);
-$("importMapBtn").addEventListener("click", () => $("mapFile").click());
-$("mapFile").addEventListener("change", event => importMapFile(event.target.files[0]));
-$("removeMapBtn").addEventListener("click", removeOfflineMap);
-$("checkMapBtn").addEventListener("click", updateOfflineMapStatus);
+$("clearRecordsBtn").addEventListener(
+  "click",
+  clearAllRecords
+);
+
+$("downloadMapBtn").addEventListener(
+  "click",
+  downloadMapFromUrl
+);
+
+$("importMapBtn").addEventListener(
+  "click",
+  () => $("mapFile").click()
+);
+
+$("mapFile").addEventListener("change", event => {
+  importMapFile(event.target.files[0]);
+});
+
+$("removeMapBtn").addEventListener(
+  "click",
+  removeOfflineMap
+);
+
+$("checkMapBtn").addEventListener(
+  "click",
+  updateOfflineMapStatus
+);
+
+/* INICIALIZAÇÃO */
 
 initMap();
 renderHistory();
@@ -983,15 +1305,20 @@ updateInstallButton();
 restoreActiveSession();
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
-  window.addEventListener("load", () =>
+  window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js")
-      .catch(error => console.error("Erro no Service Worker:", error))
-  );
+      .catch(error => {
+        console.error("Erro no Service Worker:", error);
+      });
+  });
 }
 
-// Aviso honesto: navegador pode suspender GPS em segundo plano conforme fabricante/Android.
+/* AVISO SOBRE GPS EM SEGUNDO PLANO */
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && running && !paused) {
-    console.info("Aplicativo em segundo plano: o Android pode limitar a localização.");
+    console.info(
+      "Aplicativo em segundo plano: o Android pode limitar a localização."
+    );
   }
 });
