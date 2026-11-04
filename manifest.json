@@ -1,8 +1,9 @@
+
 {
   "id": "./",
   "name": "Minha Caminhada Offline",
   "short_name": "Caminhada",
-  "description": "Aplicativo para registrar caminhadas com GPS.",
+  "description": "Aplicativo para registrar caminhadas com GPS, distância e desempenho.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
