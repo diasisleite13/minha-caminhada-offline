@@ -1,0 +1,50 @@
+MINHA CAMINHADA OFFLINE — VERSÃO 2
+
+ARQUIVOS
+- index.html: tela do aplicativo
+- style.css: aparência original preservada e painel de mapas
+- app.js: GPS, distância, cronômetro, histórico, importação de mapa e recuperação
+- sw.js: funcionamento offline do aplicativo e leitura de arquivos PMTiles por faixa (HTTP Range)
+- manifest.json e icon.svg: instalação como PWA
+
+INSTALAÇÃO / ATUALIZAÇÃO
+1. Faça uma cópia de segurança da pasta atual e dos dados do navegador.
+2. Substitua os arquivos correspondentes pelos desta pasta. Não misture trechos de arquivos diferentes.
+3. Publique em HTTPS (ou teste em localhost). O GPS não funciona em uma página HTTP comum.
+4. Abra online uma vez, aguarde o carregamento e instale/atualize o PWA.
+5. Feche e abra novamente o app para o novo Service Worker assumir.
+
+MAPA DE RUAS OFFLINE
+O app aceita arquivos PMTiles vetoriais compatíveis com o esquema Protomaps. É possível importar um arquivo local ou baixar um link HTTPS direto. O link precisa permitir CORS. O arquivo é guardado no IndexedDB e o Service Worker atende os pedidos de blocos por Range, sem depender de internet depois de instalado.
+
+O arquivo precisa vir de uma fonte que autorize expressamente download e uso offline. O servidor público padrão de tiles do OpenStreetMap NÃO pode ser usado para pré-baixar regiões. Consulte a política:
+https://operations.osmfoundation.org/policies/tiles/
+
+O app não inclui um catálogo de regiões nem um servidor de mapas. Você precisa obter o arquivo regional .pmtiles de um fornecedor/servidor autorizado. Arquivos PMTiles raster genéricos e PMTiles vetoriais de esquemas diferentes do Protomaps podem não funcionar com o renderizador incluído.
+
+GPS COM TELA APAGADA
+Esta versão mantém watchPosition ativo enquanto o navegador permite. Entretanto, um PWA/Chrome não tem serviço de localização contínua garantido com a tela bloqueada. O Android pode suspender o navegador, encerrar o processo ou limitar o GPS por economia de bateria.
+
+Para garantia real de rastreamento em segundo plano, a próxima etapa deve ser empacotar a interface em um aplicativo Android nativo com serviço de localização em primeiro plano e notificação persistente (por exemplo, Capacitor + plugin nativo/serviço Android). Não é correto prometer que o PWA sozinho manterá o GPS em todos os aparelhos.
+
+MELHORIAS APLICADAS
+- Cronômetro da sessão recuperada contabiliza o período transcorrido antes da recuperação.
+- Sessão ativa e pontos GPS são gravados no IndexedDB em vez de reescrever todo o percurso no localStorage a cada ponto.
+- Gravações são serializadas para evitar sobrescrita por uma gravação antiga.
+- O mapa não executa fitBounds em cada ponto GPS.
+- Aumentado o intervalo máximo tolerado entre pontos para evitar descartar segmentos após pausas temporárias de GPS.
+- Mapa regional pode ser importado/armazenado localmente e servido offline com Range Requests.
+- Arquivos do app e bibliotecas são armazenados pelo Service Worker após o primeiro carregamento online.
+
+IMPORTANTE
+Teste primeiro uma caminhada curta com internet, depois outra com modo avião e o mapa regional já instalado. Faça também um teste de tela bloqueada no seu Android: o comportamento depende do fabricante, versão do Android e configurações de bateria.
+
+BOTÃO EXCLUIR TODOS OS REGISTROS
+Na seção Meu histórico existe agora o botão "Excluir todos os registros". Ele pede confirmação e apaga o histórico antigo/novo e uma sessão que tenha ficado aberta. O mapa PMTiles instalado NÃO é apagado. Se uma caminhada estiver em andamento, ela também será encerrada e descartada.
+
+ATUALIZAÇÃO DESTA REVISÃO
+- Incluído botão para apagar todos os registros de caminhada.
+- A exclusão remove as chaves de histórico v1/v2 e a sessão ativa no IndexedDB/localStorage.
+- A fila de gravação da sessão é aguardada antes da exclusão, evitando que uma gravação pendente recrie a sessão.
+- Atualizado o nome da cache do Service Worker para v12, para forçar a atualização dos arquivos.
+- Verificados sintaticamente app.js e sw.js; IDs usados pelo JavaScript conferidos com o HTML.
