@@ -1,4 +1,5 @@
-const CACHE_NAME = "minha-caminhada-v12";
+const CACHE_NAME = "minha-caminhada-v13";
+
 const APP_FILES = [
   "./",
   "./index.html",
@@ -10,31 +11,38 @@ const APP_FILES = [
 
 const CDN_HOSTS = ["unpkg.com"];
 
-self.addEventListener("install", event =>
+self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(APP_FILES))
       .then(() => self.skipWaiting())
-  )
-);
+  );
+});
 
-self.addEventListener("activate", event =>
+self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
       .then(keys =>
         Promise.all(
           keys
-            .filter(k => k.startsWith("minha-caminhada-") && k !== CACHE_NAME)
-            .map(k => caches.delete(k))
+            .filter(
+              key =>
+                key.startsWith("minha-caminhada-") &&
+                key !== CACHE_NAME
+            )
+            .map(key => caches.delete(key))
         )
       )
       .then(() => self.clients.claim())
-  )
-);
+  );
+});
 
 function openMapDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("minha-caminhada-dados-v2", 1);
+    const req = indexedDB.open(
+      "minha-caminhada-dados-v2",
+      1
+    );
 
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains("data")) {
@@ -50,7 +58,8 @@ function openMapDB() {
 function readMap() {
   return openMapDB().then(db =>
     new Promise((resolve, reject) => {
-      const req = db.transaction("data", "readonly")
+      const req = db
+        .transaction("data", "readonly")
         .objectStore("data")
         .get("offline-map");
 
@@ -64,7 +73,10 @@ async function serveArchive(request) {
   const item = await readMap();
 
   if (!item || !item.blob) {
-    return new Response("Mapa offline não instalado.", { status: 404 });
+    return new Response(
+      "Mapa offline não instalado.",
+      { status: 404 }
+    );
   }
 
   const blob = item.blob;
@@ -79,7 +91,11 @@ async function serveArchive(request) {
 
   if (!range) {
     headers["Content-Length"] = String(size);
-    return new Response(blob, { status: 200, headers });
+
+    return new Response(blob, {
+      status: 200,
+      headers
+    });
   }
 
   const match = /bytes=(\d*)-(\d*)/.exec(range);
@@ -87,7 +103,9 @@ async function serveArchive(request) {
   if (!match) {
     return new Response(null, {
       status: 416,
-      headers: { "Content-Range": `bytes */${size}` }
+      headers: {
+        "Content-Range": `bytes */${size}`
+      }
     });
   }
 
@@ -95,14 +113,17 @@ async function serveArchive(request) {
     ? Number(match[1])
     : Math.max(0, size - Number(match[2]));
 
-  let end = match[2] && match[1]
-    ? Number(match[2])
-    : size - 1;
+  let end =
+    match[2] && match[1]
+      ? Number(match[2])
+      : size - 1;
 
   if (start >= size || end < start) {
     return new Response(null, {
       status: 416,
-      headers: { "Content-Range": `bytes */${size}` }
+      headers: {
+        "Content-Range": `bytes */${size}`
+      }
     });
   }
 
@@ -111,7 +132,8 @@ async function serveArchive(request) {
   const part = blob.slice(start, end + 1);
 
   headers["Content-Length"] = String(part.size);
-  headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+  headers["Content-Range"] =
+    `bytes ${start}-${end}/${size}`;
 
   return new Response(part, {
     status: 206,
@@ -122,7 +144,12 @@ async function serveArchive(request) {
 self.addEventListener("fetch", event => {
   const request = event.request;
 
-  if (request.method !== "GET" && request.method !== "HEAD") return;
+  if (
+    request.method !== "GET" &&
+    request.method !== "HEAD"
+  ) {
+    return;
+  }
 
   const url = new URL(request.url);
 
@@ -144,6 +171,7 @@ self.addEventListener("fetch", event => {
 
           if (response.ok) {
             const cache = await caches.open(CACHE_NAME);
+
             cache.put(request, response.clone());
           }
 
@@ -153,9 +181,10 @@ self.addEventListener("fetch", event => {
             return caches.match("./index.html");
           }
 
-          return new Response("Arquivo indisponível offline.", {
-            status: 503
-          });
+          return new Response(
+            "Arquivo indisponível offline.",
+            { status: 503 }
+          );
         }
       })
     );
@@ -173,14 +202,16 @@ self.addEventListener("fetch", event => {
 
           if (response.ok || response.type === "opaque") {
             const cache = await caches.open(CACHE_NAME);
+
             cache.put(request, response.clone());
           }
 
           return response;
         } catch (error) {
-          return new Response("Biblioteca indisponível offline.", {
-            status: 503
-          });
+          return new Response(
+            "Biblioteca indisponível offline.",
+            { status: 503 }
+          );
         }
       })
     );
