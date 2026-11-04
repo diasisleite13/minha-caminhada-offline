@@ -1,4 +1,5 @@
-const CACHE_NAME = "minha-caminhada-v5";
+
+const CACHE_NAME = "minha-caminhada-v6";
 
 const FILES = [
   "./",
@@ -39,7 +40,6 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(request.url);
 
-  // Não tenta armazenar recursos de outros domínios.
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
