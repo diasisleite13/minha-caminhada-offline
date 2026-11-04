@@ -1,5 +1,4 @@
-
-const CACHE_NAME = "minha-caminhada-v4";
+const CACHE_NAME = "minha-caminhada-v5";
 
 const FILES = [
   "./",
@@ -40,21 +39,27 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(request.url);
 
+  // Não tenta armazenar recursos de outros domínios.
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then(response => {
-          const copy = response.clone();
+          if (response.ok) {
+            const copy = response.clone();
 
-          caches.open(CACHE_NAME).then(
-            cache => cache.put("./", copy)
-          );
+            caches.open(CACHE_NAME).then(cache => {
+              cache.put("./", copy);
+            });
+          }
 
           return response;
         })
-        .catch(() => caches.match("./"))
+        .catch(async () => {
+          return await caches.match("./") ||
+            await caches.match("./index.html");
+        })
     );
 
     return;
@@ -68,9 +73,9 @@ self.addEventListener("fetch", event => {
         if (response.ok) {
           const copy = response.clone();
 
-          caches.open(CACHE_NAME).then(
-            cache => cache.put(request, copy)
-          );
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(request, copy);
+          });
         }
 
         return response;
