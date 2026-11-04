@@ -6,15 +6,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
   <meta name="theme-color" content="#123d2c">
-  <meta name="description" content="Aplicativo de caminhada com GPS, distância, velocidade, ritmo e histórico offline.">
+  <meta name="description" content="Aplicativo de caminhada com GPS, distância e histórico.">
 
   <title>Minha Caminhada Offline</title>
 
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
-
   <link rel="stylesheet" href="./style.css">
-  <link rel="stylesheet" href="./vendor/leaflet.css">
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  >
 </head>
 
 <body>
@@ -46,6 +50,8 @@
     </p>
   </section>
 
+  <!-- DISTÂNCIA -->
+
   <section class="distance-card">
 
     <small>DISTÂNCIA PERCORRIDA</small>
@@ -76,6 +82,8 @@
 
   </section>
 
+  <!-- MAPA -->
+
   <section class="map-section">
 
     <div class="section-title">
@@ -89,10 +97,13 @@
     <div id="map"></div>
 
     <p id="mapNotice" class="notice">
-      O GPS funciona sem internet. O mapa de fundo precisa de internet ou de mapas previamente baixados.
+      O percurso GPS pode ser registrado sem internet.
+      O mapa de ruas precisa estar carregado.
     </p>
 
   </section>
+
+  <!-- CONTROLES -->
 
   <section class="controls">
 
@@ -109,6 +120,8 @@
     </button>
 
   </section>
+
+  <!-- DESEMPENHO -->
 
   <section class="performance-section">
 
@@ -150,6 +163,8 @@
 
   </section>
 
+  <!-- HISTÓRICO -->
+
   <section class="history-section">
 
     <div class="section-title">
@@ -169,7 +184,7 @@
 
       <div>
         <small>Distância acumulada</small>
-        <strong id="totalKm">0 km</strong>
+        <strong id="totalKm">0 m</strong>
       </div>
 
     </div>
@@ -188,7 +203,10 @@
   Minha Caminhada Offline · Seus dados ficam no seu celular.
 </footer>
 
-<script src="./vendor/leaflet.js"></script>
+<!-- Leaflet antes do app.js -->
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script src="./app.js"></script>
 
 </body>
