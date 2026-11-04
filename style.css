@@ -131,6 +131,7 @@ main {
   background: #ffffff16;
   padding: 12px 8px;
   border-radius: 10px;
+  min-width: 0;
 }
 
 .stats small {
@@ -169,8 +170,10 @@ h2 {
 
 #map {
   height: 320px;
+  width: 100%;
   border-radius: 12px;
   background: #e5ece7;
+  overflow: hidden;
 }
 
 .notice {
@@ -226,7 +229,7 @@ button:disabled {
   font-size: 11px;
 }
 
-/* PAINEL DE DESEMPENHO */
+/* DESEMPENHO */
 
 .performance-grid {
   display: grid;
@@ -249,12 +252,12 @@ button:disabled {
 }
 
 .performance-card small {
-  color: #75867c;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .performance-card strong {
-  color: #123d2c;
+  color: var(--dark);
   font-size: 19px;
   overflow-wrap: anywhere;
 }
@@ -266,7 +269,7 @@ button:disabled {
 
 .record-date {
   font-size: 11px;
-  color: #75867c;
+  color: var(--muted);
 }
 
 /* HISTÓRICO */
