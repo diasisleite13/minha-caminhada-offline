@@ -5,7 +5,6 @@
   --background: #f3f7f4;
   --text: #1c3026;
   --muted: #75867c;
-  --white: #ffffff;
 }
 
 * {
@@ -56,37 +55,40 @@ header small {
   white-space: nowrap;
 }
 
-.status.active {
-  background: #16834e;
-}
-
 main {
   width: min(100% - 24px, 700px);
   margin: 18px auto;
 }
 
-/* BOTÃO DE INSTALAÇÃO */
+/* INSTALAÇÃO */
+
+.install-area {
+  margin-bottom: 16px;
+  text-align: center;
+}
 
 .install-btn {
   display: block;
   width: 100%;
   background: #16a05d;
   color: white;
-  padding: 17px;
+  padding: 18px;
   border-radius: 12px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: bold;
-  margin-bottom: 16px;
   border: none;
+  cursor: pointer;
   box-shadow: 0 3px 8px #0002;
 }
 
 .install-btn:active {
-  transform: scale(0.98);
+  transform: scale(.98);
 }
 
-.install-btn.installed {
-  background: #365344;
+.install-area p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 /* DISTÂNCIA */
@@ -96,7 +98,6 @@ main {
   color: white;
   border-radius: 20px;
   padding: 22px;
-  box-shadow: 0 5px 15px #123d2c20;
 }
 
 .distance-card > small {
@@ -140,7 +141,7 @@ main {
 }
 
 .stats strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 /* MAPA */
@@ -169,7 +170,6 @@ h2 {
   height: 320px;
   border-radius: 12px;
   background: #e5ece7;
-  z-index: 1;
 }
 
 .notice {
@@ -178,7 +178,7 @@ h2 {
   line-height: 1.5;
 }
 
-/* CONTROLES */
+/* BOTÕES */
 
 .controls {
   display: grid;
@@ -298,6 +298,6 @@ footer {
   }
 
   .stats strong {
-    font-size: 12px;
+    font-size: 11px;
   }
 }
